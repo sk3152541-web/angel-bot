@@ -4,3 +4,4 @@ numpy
 pyotp
 matplotlib
 smartapi-python
+logzero
