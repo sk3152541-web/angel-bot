@@ -1,9 +1,5 @@
-streamlit
-pandas
-numpy
-pyotp
-matplotlib
+fastapi
+uvicorn
+requests
 smartapi-python
-logzero
-websocket-client
-streamlit-autorefresh
+pyotp
