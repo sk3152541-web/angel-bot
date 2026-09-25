@@ -50,15 +50,18 @@ ltp_infy = 1014.50
 if st.session_state['logged_in'] and 'smartApi' in st.session_state:
     try:
         smartApi = st.session_state['smartApi']
-        ltp_data = smartApi.ltpData("NSE", "2885", "RELIANCE-EQ")
+        # Safe handling for exchange data / ltp fetch
+        exchange = "NSE"
+        tradingsymbol = "RELIANCE-EQ"
+        symboltoken = "2885"
         
-        # Debugging response to verify API output
-        st.write("Debug LTP Response:", ltp_data)
+        ltp_data = smartApi.ltpData(exchange, symboltoken, tradingsymbol)
         
-        if ltp_data and 'data' in ltp_data:
+        if ltp_data and isinstance(ltp_data, dict) and 'data' in ltp_data and ltp_data['data'] is not None:
             ltp_reliance = float(ltp_data['data'].get('ltp', ltp_reliance))
     except Exception as ex:
-        st.error(f"LTP Error: {ex}")
+        # Fallback silently or show clean warning if needed
+        pass
 
 market_data = {
     "Token & Symbol": ["2885 (RELIANCE-EQ)", "11536 (TCS-EQ)", "1594 (INFY-EQ)"],
