@@ -3,3 +3,4 @@ uvicorn
 requests
 smartapi-python
 pyotp
+logzero
