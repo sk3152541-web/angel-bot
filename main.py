@@ -32,7 +32,6 @@ def add_log(msg):
 def dashboard(request: Request):
     global bot_active, latest_ticks, bot_logs, tsl_gap_val, qty_val
     
-    # HTML Dashboard for Mobile and Laptop browsers
     html_content = f"""
     <!DOCTYPE html>
     <html>
@@ -121,7 +120,10 @@ def login_route(api_key: str = Form(...), client_id: str = Form(...), password: 
             smart_session = {"obj": obj, "jwt": jwt_token, "feed": feed_token, "client": client_id, "key": api_key}
             add_log("⚡ Successfully authenticated with Angel One SmartAPI!")
             
-            # Start WebSocket in background thread
+            # Fetch real LTP via REST API immediately
+            fetch_real_ltp_rest()
+
+            # Start WebSocket in background thread for live streaming
             threading.Thread(target=start_angel_websocket, daemon=True).start()
         else:
             add_log(f"❌ Login Failed: {session_data.get('message', 'Unknown error')}")
@@ -129,6 +131,31 @@ def login_route(api_key: str = Form(...), client_id: str = Form(...), password: 
         add_log(f"❌ Login Error: {str(e)}")
     
     return HTMLResponse("<script>window.location='/';</script>")
+
+def fetch_real_ltp_rest():
+    global smart_session, latest_ticks
+    if not smart_session:
+        return
+    try:
+        obj = smart_session["obj"]
+        symbols_to_fetch = [
+            {"exchange": "NSE", "tradingsymbol": "RELIANCE-EQ", "symboltoken": "2885"},
+            {"exchange": "NSE", "tradingsymbol": "TCS-EQ", "symboltoken": "11536"},
+            {"exchange": "NSE", "tradingsymbol": "INFY-EQ", "symboltoken": "1594"}
+        ]
+        
+        for item in symbols_to_fetch:
+            res = obj.ltpData(item["exchange"], item["tradingsymbol"], item["symboltoken"])
+            if res and res.get('status') and 'data' in res:
+                ltp_val = res['data'].get('ltp')
+                token = item["symboltoken"]
+                current_time = datetime.datetime.now().strftime("%H:%M:%S")
+                if ltp_val:
+                    latest_ticks[token]["ltp"] = str(ltp_val)
+                    latest_ticks[token]["time"] = current_time
+        add_log("📊 Real LTP fetched successfully via Angel One REST API!")
+    except Exception as e:
+        add_log(f"❌ REST LTP Fetch Error: {str(e)}")
 
 @app.post("/toggle_bot")
 def toggle_bot_route(tsl_gap: float = Form(5.0), qty: int = Form(1)):
