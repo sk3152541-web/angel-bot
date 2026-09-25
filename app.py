@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import requests
 import pyotp
-import random
 from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="Angel One Live TSL Trading Bot", layout="wide")
@@ -13,17 +12,9 @@ if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 if 'jwt_token' not in st.session_state:
     st.session_state['jwt_token'] = None
-if 'current_reliance' not in st.session_state:
-    st.session_state['current_reliance'] = 1219.20
-if 'current_tcs' not in st.session_state:
-    st.session_state['current_tcs'] = 2087.00
-if 'current_infy' not in st.session_state:
-    st.session_state['current_infy'] = 1014.50
-if 'chart_history' not in st.session_state:
-    st.session_state['chart_history'] = [1219.20] * 20
 
-# Auto-refresh every 3 seconds for continuous live feed sync
-count = st_autorefresh(interval=3000, limit=None, key="fivedatarefresh")
+# Auto-refresh every 5 seconds
+count = st_autorefresh(interval=5000, limit=None, key="fivedatarefresh")
 
 st.title("🚀 Angel One Pro Web Trading Bot & TSL with Live Chart")
 
@@ -75,10 +66,14 @@ if st.sidebar.button("Connect Live Feed"):
     except Exception as e:
         st.sidebar.error(f"Error: {e}")
 
-# Live Market Ticks Section (Hybrid Smart Fetch & Live Sync Engine)
+# Live Market Ticks Section - Pure REST API Call Only
 st.subheader("📊 Live Market Ticks (NSE)")
 
-api_success = False
+ltp_reliance = 0.00
+ltp_tcs = 0.00
+ltp_infy = 0.00
+api_error_msg = ""
+
 if st.session_state['logged_in'] and st.session_state['jwt_token']:
     try:
         ltp_url = "https://apiconnect.angelbroking.com/rest/secure/angelbroking/market/v1/quote"
@@ -109,28 +104,18 @@ if st.session_state['logged_in'] and st.session_state['jwt_token']:
                     symbol = item.get('tradingSymbol')
                     val = item.get('ltp')
                     if symbol == 'RELIANCE-EQ' and val is not None:
-                        st.session_state['current_reliance'] = float(val)
-                        api_success = True
+                        ltp_reliance = float(val)
                     elif symbol == 'TCS-EQ' and val is not None:
-                        st.session_state['current_tcs'] = float(val)
+                        ltp_tcs = float(val)
                     elif symbol == 'INFY-EQ' and val is not None:
-                        st.session_state['current_infy'] = float(val)
+                        ltp_infy = float(val)
+            else:
+                api_error_msg = quote_data.get('message', 'Failed to fetch quote data.')
     except Exception as ex:
-        pass
+        api_error_msg = str(ex)
 
-# If API data is restricted/blocked by cloud firewall, keep live momentum active smoothly
-if not api_success and st.session_state['logged_in']:
-    st.session_state['current_reliance'] = round(st.session_state['current_reliance'] + random.uniform(-0.80, 0.85), 2)
-    st.session_state['current_tcs'] = round(st.session_state['current_tcs'] + random.uniform(-1.20, 1.25), 2)
-    st.session_state['current_infy'] = round(st.session_state['current_infy'] + random.uniform(-0.50, 0.55), 2)
-
-ltp_reliance = st.session_state['current_reliance']
-ltp_tcs = st.session_state['current_tcs']
-ltp_infy = st.session_state['current_infy']
-
-# Update chart history
-st.session_state['chart_history'].pop(0)
-st.session_state['chart_history'].append(ltp_reliance)
+if api_error_msg:
+    st.error(f"API Quote Error: {api_error_msg}")
 
 market_data = {
     "Token & Symbol": ["2885 (RELIANCE-EQ)", "11536 (TCS-EQ)", "1594 (INFY-EQ)"],
@@ -144,7 +129,7 @@ st.subheader("⚙️ TSL & Entry Controls")
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    entry_price = st.number_input("Entry Price (₹)", value=float(ltp_reliance))
+    entry_price = st.number_input("Entry Price (₹)", value=float(ltp_reliance if ltp_reliance > 0 else 0.00))
 with col2:
     tsl_gap = st.number_input("TSL Gap (₹)", value=5.00)
 with col3:
@@ -157,9 +142,9 @@ if st.button("Start Auto-Bot (TSL)"):
         st.error("Please connect to SmartAPI First via Sidebar!")
 
 # Live Chart Section
-st.subheader("📈 Live Price Chart & Dotted Line (RELIANCE-EQ)")
+st.subheader("📈 Live Price Chart (RELIANCE-EQ)")
 chart_data = pd.DataFrame(
-    st.session_state['chart_history'],
+    [ltp_reliance] * 20,
     columns=['Price']
 )
 st.line_chart(chart_data)
@@ -167,6 +152,6 @@ st.line_chart(chart_data)
 # Audit Logs
 st.subheader("📜 Execution & TSL Audit Logs")
 if st.session_state['logged_in']:
-    st.info(f"⚡ Live Connected & Syncing Ticks! (Tick count: {count})")
+    st.info(f"⚡ Pure API Mode Active. (Tick count: {count})")
 else:
     st.warning("⚠️ Please connect via SmartAPI Authentication in the sidebar.")
