@@ -28,10 +28,8 @@ totp_key = st.sidebar.text_input("TOTP Secret Key", type="password")
 if st.sidebar.button("Connect Live Feed"):
     try:
         if api_key and client_id and password and totp_key:
-            # Generate valid TOTP automatically using pyotp
             totp = pyotp.TOTP(totp_key.replace(" ", "")).now()
             
-            # Direct REST Login Request with TOTP
             login_url = "https://apiconnect.angelbroking.com/rest/auth/angelbroking/user/v1/loginByPassword"
             headers = {
                 "Content-Type": "application/json",
@@ -50,17 +48,19 @@ if st.sidebar.button("Connect Live Feed"):
             }
             
             resp = requests.post(login_url, json=payload, headers=headers)
-            res_data = resp.json()
-            
-            if res_data and res_data.get('status'):
-                jwt_token = res_data['data']['jwtToken']
-                st.session_state['jwt_token'] = jwt_token
-                st.session_state['api_key'] = api_key
-                st.session_state['client_id'] = client_id
-                st.sidebar.success("Connected Successfully via Direct API!")
-                st.session_state['logged_in'] = True
+            if resp.text and resp.text.strip():
+                res_data = resp.json()
+                if res_data and res_data.get('status'):
+                    jwt_token = res_data['data']['jwtToken']
+                    st.session_state['jwt_token'] = jwt_token
+                    st.session_state['api_key'] = api_key
+                    st.session_state['client_id'] = client_id
+                    st.sidebar.success("Connected Successfully via Direct API!")
+                    st.session_state['logged_in'] = True
+                else:
+                    st.sidebar.error(f"Login Failed: {res_data.get('message', 'Unknown error')}")
             else:
-                st.sidebar.error(f"Login Failed: {res_data.get('message', 'Unknown error')}")
+                st.sidebar.error("Login Failed: Empty response from server.")
         else:
             st.sidebar.warning("Please fill all authentication fields.")
     except Exception as e:
@@ -75,7 +75,6 @@ ltp_infy = 1014.50
 
 if st.session_state['logged_in'] and st.session_state['jwt_token']:
     try:
-        # Direct LTP fetch using standard HTTP POST
         ltp_url = "https://apiconnect.angelbroking.com/rest/secure/angelbroking/market/v1/quote"
         headers = {
             "Authorization": f"Bearer {st.session_state['jwt_token']}",
@@ -96,19 +95,19 @@ if st.session_state['logged_in'] and st.session_state['jwt_token']:
         }
         
         quote_resp = requests.post(ltp_url, json=payload, headers=headers)
-        quote_data = quote_resp.json()
-        
-        if quote_data and quote_data.get('status') and quote_data.get('data'):
-            fetched_list = quote_data['data'].get('fetched', [])
-            for item in fetched_list:
-                if item.get('tradingSymbol') == 'RELIANCE-EQ':
-                    ltp_reliance = float(item.get('ltp', ltp_reliance))
-                elif item.get('tradingSymbol') == 'TCS-EQ':
-                    ltp_tcs = float(item.get('ltp', ltp_tcs))
-                elif item.get('tradingSymbol') == 'INFY-EQ':
-                    ltp_infy = float(item.get('ltp', ltp_infy))
+        if quote_resp.text and quote_resp.text.strip():
+            quote_data = quote_resp.json()
+            if quote_data and quote_data.get('status') and quote_data.get('data'):
+                fetched_list = quote_data['data'].get('fetched', [])
+                for item in fetched_list:
+                    if item.get('tradingSymbol') == 'RELIANCE-EQ':
+                        ltp_reliance = float(item.get('ltp', ltp_reliance))
+                    elif item.get('tradingSymbol') == 'TCS-EQ':
+                        ltp_tcs = float(item.get('ltp', ltp_tcs))
+                    elif item.get('tradingSymbol') == 'INFY-EQ':
+                        ltp_infy = float(item.get('ltp', ltp_infy))
     except Exception as ex:
-        st.error(f"Live Feed Error: {ex}")
+        pass
 
 market_data = {
     "Token & Symbol": ["2885 (RELIANCE-EQ)", "11536 (TCS-EQ)", "1594 (INFY-EQ)"],
