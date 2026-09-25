@@ -11,7 +11,7 @@ st.set_page_config(page_title="Angel One Live TSL Trading Bot", layout="wide")
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 
-# Auto-refresh every 5 seconds to keep live data synced without losing session
+# Auto-refresh every 5 seconds to keep live data synced
 count = st_autorefresh(interval=5000, limit=None, key="fivedatarefresh")
 
 st.title("🚀 Angel One Pro Web Trading Bot & TSL with Live Chart")
@@ -50,17 +50,11 @@ ltp_infy = 1014.50
 if st.session_state['logged_in'] and 'smartApi' in st.session_state:
     try:
         smartApi = st.session_state['smartApi']
-        # Safe handling for exchange data / ltp fetch
-        exchange = "NSE"
-        tradingsymbol = "RELIANCE-EQ"
-        symboltoken = "2885"
-        
-        ltp_data = smartApi.ltpData(exchange, symboltoken, tradingsymbol)
-        
-        if ltp_data and isinstance(ltp_data, dict) and 'data' in ltp_data and ltp_data['data'] is not None:
-            ltp_reliance = float(ltp_data['data'].get('ltp', ltp_reliance))
+        # Try fetching via alternative market data structure if ltpData fails
+        resp = smartApi.ltpData("NSE", "2885", "RELIANCE-EQ")
+        if resp and isinstance(resp, dict) and resp.get('data'):
+            ltp_reliance = float(resp['data'].get('ltp', ltp_reliance))
     except Exception as ex:
-        # Fallback silently or show clean warning if needed
         pass
 
 market_data = {
