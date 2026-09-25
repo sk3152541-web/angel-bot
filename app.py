@@ -1,10 +1,9 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import time
 from SmartApi import SmartConnect
 import pyotp
-import streamlit.components.v1 as components
+from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="Angel One Live TSL Trading Bot", layout="wide")
 
@@ -12,18 +11,8 @@ st.set_page_config(page_title="Angel One Live TSL Trading Bot", layout="wide")
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 
-# Permanent auto-refresh script injection only when logged in
-if st.session_state.get('logged_in', False):
-    components.html(
-        """
-        <script>
-            setTimeout(function(){
-                window.parent.location.reload();
-            }, 5000);
-        </script>
-        """,
-        height=0,
-    )
+# Auto-refresh count object (har 5 second mein background sync karega bina session toote)
+count = st_autorefresh(interval=5000, limit=None, key="fivedatarefresh")
 
 st.title("🚀 Angel One Pro Web Trading Bot & TSL with Live Chart")
 
@@ -102,6 +91,6 @@ st.line_chart(chart_data)
 # Audit Logs
 st.subheader("📜 Execution & TSL Audit Logs")
 if st.session_state['logged_in']:
-    st.info("⚡ Successfully authenticated and linked with Angel One SmartAPI live session!")
+    st.info(f"⚡ Live Connected & Auto-Refreshing! (Tick count: {count})")
 else:
     st.warning("⚠️ Please connect via SmartAPI Authentication in the sidebar.")
