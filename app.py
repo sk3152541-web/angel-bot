@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from SmartApi import SmartConnect
+import requests
 import pyotp
 from streamlit_autorefresh import st_autorefresh
 
@@ -10,8 +10,10 @@ st.set_page_config(page_title="Angel One Live TSL Trading Bot", layout="wide")
 # Session state initialization
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
+if 'jwt_token' not in st.session_state:
+    st.session_state['jwt_token'] = None
 
-# Auto-refresh every 5 seconds to keep live data synced
+# Auto-refresh every 5 seconds for live sync
 count = st_autorefresh(interval=5000, limit=None, key="fivedatarefresh")
 
 st.title("🚀 Angel One Pro Web Trading Bot & TSL with Live Chart")
@@ -27,14 +29,36 @@ if st.sidebar.button("Connect Live Feed"):
     try:
         if api_key and client_id and password and totp_key:
             totp = pyotp.TOTP(totp_key.replace(" ", "")).now()
-            smartApi = SmartConnect(api_key=api_key)
-            data = smartApi.generateSession(client_id, password, totp)
-            if data and data.get('status'):
-                st.sidebar.success("Connected Successfully!")
-                st.session_state['smartApi'] = smartApi
+            
+            # Direct REST Login Request to bypass SDK caching issues on cloud
+            login_url = "https://apiconnect.angelbroking.com/rest/auth/angelbroking/user/v1/loginByPassword"
+            headers = {
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "X-UserType": "USER",
+                "X-SourceID": "WEB",
+                "X-ClientLocalIP": "192.168.1.1",
+                "X-ClientPublicIP": "106.193.147.98",
+                "X-MACAddress": "MAC",
+                "X-PrivateKey": api_key
+            }
+            payload = {
+                "clientcode": client_id,
+                "password": password
+            }
+            
+            resp = requests.post(login_url, json=payload, headers=headers)
+            res_data = resp.json()
+            
+            if res_data and res_data.get('status'):
+                jwt_token = res_data['data']['jwtToken']
+                st.session_state['jwt_token'] = jwt_token
+                st.session_state['api_key'] = api_key
+                st.session_state['client_id'] = client_id
+                st.sidebar.success("Connected Successfully via Direct API!")
                 st.session_state['logged_in'] = True
             else:
-                st.sidebar.error("Authentication Failed. Check credentials.")
+                st.sidebar.error(f"Login Failed: {res_data.get('message', 'Unknown error')}")
         else:
             st.sidebar.warning("Please fill all authentication fields.")
     except Exception as e:
@@ -47,15 +71,42 @@ ltp_reliance = 1219.20
 ltp_tcs = 2087.00
 ltp_infy = 1014.50
 
-if st.session_state['logged_in'] and 'smartApi' in st.session_state:
+if st.session_state['logged_in'] and st.session_state['jwt_token']:
     try:
-        smartApi = st.session_state['smartApi']
-        # Try fetching via alternative market data structure if ltpData fails
-        resp = smartApi.ltpData("NSE", "2885", "RELIANCE-EQ")
-        if resp and isinstance(resp, dict) and resp.get('data'):
-            ltp_reliance = float(resp['data'].get('ltp', ltp_reliance))
+        # Direct LTP fetch using standard HTTP POST to avoid cache issues
+        ltp_url = "https://apiconnect.angelbroking.com/rest/secure/angelbroking/market/v1/quote"
+        headers = {
+            "Authorization": f"Bearer {st.session_state['jwt_token']}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-UserType": "USER",
+            "X-SourceID": "WEB",
+            "X-ClientLocalIP": "192.168.1.1",
+            "X-ClientPublicIP": "106.193.147.98",
+            "X-MACAddress": "MAC",
+            "X-PrivateKey": st.session_state['api_key']
+        }
+        payload = {
+            "mode": "LTPL",
+            "exchangeTokens": {
+                "NSE": ["2885", "11536", "1594"]
+            }
+        }
+        
+        quote_resp = requests.post(ltp_url, json=payload, headers=headers)
+        quote_data = quote_resp.json()
+        
+        if quote_data and quote_data.get('status') and quote_data.get('data'):
+            fetched_list = quote_data['data'].get('fetched', [])
+            for item in fetched_list:
+                if item.get('tradingSymbol') == 'RELIANCE-EQ':
+                    ltp_reliance = float(item.get('ltp', ltp_reliance))
+                elif item.get('tradingSymbol') == 'TCS-EQ':
+                    ltp_tcs = float(item.get('ltp', ltp_tcs))
+                elif item.get('tradingSymbol') == 'INFY-EQ':
+                    ltp_infy = float(item.get('ltp', ltp_infy))
     except Exception as ex:
-        pass
+        st.error(f"Live Feed Error: {ex}")
 
 market_data = {
     "Token & Symbol": ["2885 (RELIANCE-EQ)", "11536 (TCS-EQ)", "1594 (INFY-EQ)"],
@@ -92,6 +143,6 @@ st.line_chart(chart_data)
 # Audit Logs
 st.subheader("📜 Execution & TSL Audit Logs")
 if st.session_state['logged_in']:
-    st.info(f"⚡ Live Connected & Auto-Refreshing! (Tick count: {count})")
+    st.info(f"⚡ Live Connected & Auto-Refreshing via Direct API! (Tick count: {count})")
 else:
     st.warning("⚠️ Please connect via SmartAPI Authentication in the sidebar.")
