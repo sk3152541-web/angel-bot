@@ -28,9 +28,10 @@ totp_key = st.sidebar.text_input("TOTP Secret Key", type="password")
 if st.sidebar.button("Connect Live Feed"):
     try:
         if api_key and client_id and password and totp_key:
+            # Generate valid TOTP automatically using pyotp
             totp = pyotp.TOTP(totp_key.replace(" ", "")).now()
             
-            # Direct REST Login Request to bypass SDK caching issues on cloud
+            # Direct REST Login Request with TOTP
             login_url = "https://apiconnect.angelbroking.com/rest/auth/angelbroking/user/v1/loginByPassword"
             headers = {
                 "Content-Type": "application/json",
@@ -44,7 +45,8 @@ if st.sidebar.button("Connect Live Feed"):
             }
             payload = {
                 "clientcode": client_id,
-                "password": password
+                "password": password,
+                "totp": totp
             }
             
             resp = requests.post(login_url, json=payload, headers=headers)
@@ -73,7 +75,7 @@ ltp_infy = 1014.50
 
 if st.session_state['logged_in'] and st.session_state['jwt_token']:
     try:
-        # Direct LTP fetch using standard HTTP POST to avoid cache issues
+        # Direct LTP fetch using standard HTTP POST
         ltp_url = "https://apiconnect.angelbroking.com/rest/secure/angelbroking/market/v1/quote"
         headers = {
             "Authorization": f"Bearer {st.session_state['jwt_token']}",
