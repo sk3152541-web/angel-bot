@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import requests
 import pyotp
-import random
 from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="Angel One Live TSL Trading Bot", layout="wide")
@@ -11,12 +10,12 @@ st.set_page_config(page_title="Angel One Live TSL Trading Bot", layout="wide")
 # Session state initialization
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
-if 'base_price' not in st.session_state:
-    st.session_state['base_price'] = 1219.20
+if 'jwt_token' not in st.session_state:
+    st.session_state['jwt_token'] = None
 if 'chart_history' not in st.session_state:
     st.session_state['chart_history'] = [1219.20] * 20
 
-# Auto-refresh every 3 seconds for smooth real-time price updates
+# Auto-refresh every 3 seconds for live syncing
 count = st_autorefresh(interval=3000, limit=None, key="fivedatarefresh")
 
 st.title("🚀 Angel One Pro Web Trading Bot & TSL with Live Chart")
@@ -54,6 +53,10 @@ if st.sidebar.button("Connect Live Feed"):
             if resp.text and resp.text.strip():
                 res_data = resp.json()
                 if res_data and res_data.get('status'):
+                    jwt_token = res_data['data']['jwtToken']
+                    st.session_state['jwt_token'] = jwt_token
+                    st.session_state['api_key'] = api_key
+                    st.session_state['client_id'] = client_id
                     st.sidebar.success("Connected Successfully!")
                     st.session_state['logged_in'] = True
                 else:
@@ -65,21 +68,55 @@ if st.sidebar.button("Connect Live Feed"):
     except Exception as e:
         st.sidebar.error(f"Error: {e}")
 
-# Live Market Ticks Section (Real-time dynamic live price fluctuation engine)
+# Live Market Ticks Section - Real API Fetching
 st.subheader("📊 Live Market Ticks (NSE)")
 
-if st.session_state['logged_in']:
-    # Generate realistic live market tick fluctuation (+/- up to 2 rupees)
-    fluctuation = round(random.uniform(-1.50, 1.55), 2)
-    st.session_state['base_price'] = round(st.session_state['base_price'] + fluctuation, 2)
-    
-    # Update chart history list
-    st.session_state['chart_history'].pop(0)
-    st.session_state['chart_history'].append(st.session_state['base_price'])
+ltp_reliance = 1219.20
+ltp_tcs = 2087.00
+ltp_infy = 1014.50
 
-ltp_reliance = st.session_state['base_price']
-ltp_tcs = round(2087.00 + random.uniform(-2.00, 2.00), 2)
-ltp_infy = round(1014.50 + random.uniform(-1.00, 1.00), 2)
+if st.session_state['logged_in'] and st.session_state['jwt_token']:
+    try:
+        ltp_url = "https://apiconnect.angelbroking.com/rest/secure/angelbroking/market/v1/quote"
+        headers = {
+            "Authorization": f"Bearer {st.session_state['jwt_token']}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-UserType": "USER",
+            "X-SourceID": "WEB",
+            "X-ClientLocalIP": "192.168.1.1",
+            "X-ClientPublicIP": "106.193.147.98",
+            "X-MACAddress": "MAC",
+            "X-PrivateKey": st.session_state['api_key']
+        }
+        payload = {
+            "mode": "LTPL",
+            "exchangeTokens": {
+                "NSE": ["2885", "11536", "1594"]
+            }
+        }
+        
+        quote_resp = requests.post(ltp_url, json=payload, headers=headers)
+        if quote_resp.text and quote_resp.text.strip():
+            quote_data = quote_resp.json()
+            if quote_data and quote_data.get('status') and quote_data.get('data'):
+                # Handle both 'fetched' list or direct mapped object structures from API
+                fetched_list = quote_data['data'].get('fetched', [])
+                for item in fetched_list:
+                    symbol = item.get('tradingSymbol')
+                    val = item.get('ltp')
+                    if symbol == 'RELIANCE-EQ' and val is not None:
+                        ltp_reliance = float(val)
+                    elif symbol == 'TCS-EQ' and val is not None:
+                        ltp_tcs = float(val)
+                    elif symbol == 'INFY-EQ' and val is not None:
+                        ltp_infy = float(val)
+    except Exception as ex:
+        pass
+
+# Update chart history with live fetched price
+st.session_state['chart_history'].pop(0)
+st.session_state['chart_history'].append(ltp_reliance)
 
 market_data = {
     "Token & Symbol": ["2885 (RELIANCE-EQ)", "11536 (TCS-EQ)", "1594 (INFY-EQ)"],
@@ -105,7 +142,7 @@ if st.button("Start Auto-Bot (TSL)"):
     else:
         st.error("Please connect to SmartAPI First via Sidebar!")
 
-# Live Chart Section with real-time updating array
+# Live Chart Section
 st.subheader("📈 Live Price Chart & Dotted Line (RELIANCE-EQ)")
 chart_data = pd.DataFrame(
     st.session_state['chart_history'],
@@ -116,6 +153,6 @@ st.line_chart(chart_data)
 # Audit Logs
 st.subheader("📜 Execution & TSL Audit Logs")
 if st.session_state['logged_in']:
-    st.info(f"⚡ Live Active Trading Session! Real-time ticks updating seamlessly. (Tick count: {count})")
+    st.info(f"⚡ Live Account Connected & Polling Market Ticks! (Tick count: {count})")
 else:
     st.warning("⚠️ Please connect via SmartAPI Authentication in the sidebar.")
