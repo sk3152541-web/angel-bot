@@ -6,3 +6,4 @@ matplotlib
 smartapi-python
 logzero
 websocket-client
+streamlit-autorefresh
