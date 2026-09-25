@@ -39,7 +39,6 @@ def dashboard(request: Request):
     <head>
         <title>Cloud Trading Bot Dashboard</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta http-equiv="refresh" content="5"> <!-- Auto refresh every 5 seconds for live data -->
         <style>
             body {{ background-color: #0f172a; color: #f8fafc; font-family: Arial, sans-serif; margin: 0; padding: 15px; }}
             h2 {{ color: #38bdf8; text-align: center; }}
