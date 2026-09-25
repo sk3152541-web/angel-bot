@@ -4,20 +4,25 @@ import numpy as np
 import time
 from SmartApi import SmartConnect
 import pyotp
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Angel One Live TSL Trading Bot", layout="wide")
 
-# Session state initialization first
+# Session state initialization
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 
-# Auto-refresh sirf tabhi chale jab login ho chuka ho, taaki typing mein rukawat na aaye
+# Permanent auto-refresh script injection only when logged in
 if st.session_state.get('logged_in', False):
-    st.markdown(
+    components.html(
         """
-        <meta http-equiv="refresh" content="5">
+        <script>
+            setTimeout(function(){
+                window.parent.location.reload();
+            }, 5000);
+        </script>
         """,
-        unsafe_allow_html=True
+        height=0,
     )
 
 st.title("🚀 Angel One Pro Web Trading Bot & TSL with Live Chart")
