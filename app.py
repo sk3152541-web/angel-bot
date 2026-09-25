@@ -7,13 +7,18 @@ import pyotp
 
 st.set_page_config(page_title="Angel One Live TSL Trading Bot", layout="wide")
 
-# Automatic refresh every 5 seconds for mobile & cloud live updates
-st.markdown(
-    """
-    <meta http-equiv="refresh" content="5">
-    """,
-    unsafe_allow_html=True
-)
+# Session state initialization first
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+
+# Auto-refresh sirf tabhi chale jab login ho chuka ho, taaki typing mein rukawat na aaye
+if st.session_state.get('logged_in', False):
+    st.markdown(
+        """
+        <meta http-equiv="refresh" content="5">
+        """,
+        unsafe_allow_html=True
+    )
 
 st.title("🚀 Angel One Pro Web Trading Bot & TSL with Live Chart")
 
@@ -23,10 +28,6 @@ api_key = st.sidebar.text_input("API Key", type="default")
 client_id = st.sidebar.text_input("Client ID", type="default")
 password = st.sidebar.text_input("Password / MPIN", type="password")
 totp_key = st.sidebar.text_input("TOTP Secret Key", type="password")
-
-# Session state initialization
-if 'logged_in' not in st.session_state:
-    st.session_state['logged_in'] = False
 
 if st.sidebar.button("Connect Live Feed"):
     try:
