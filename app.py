@@ -12,6 +12,8 @@ if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 if 'jwt_token' not in st.session_state:
     st.session_state['jwt_token'] = None
+if 'debug_response' not in st.session_state:
+    st.session_state['debug_response'] = "Not hit yet"
 
 # Auto-refresh every 5 seconds
 count = st_autorefresh(interval=5000, limit=None, key="fivedatarefresh")
@@ -66,13 +68,12 @@ if st.sidebar.button("Connect Live Feed"):
     except Exception as e:
         st.sidebar.error(f"Error: {e}")
 
-# Live Market Ticks Section - Pure REST API Call Only
+# Live Market Ticks Section - Pure REST API Call with Live Debugger
 st.subheader("📊 Live Market Ticks (NSE)")
 
 ltp_reliance = 0.00
 ltp_tcs = 0.00
 ltp_infy = 0.00
-api_error_msg = ""
 
 if st.session_state['logged_in'] and st.session_state['jwt_token']:
     try:
@@ -96,6 +97,8 @@ if st.session_state['logged_in'] and st.session_state['jwt_token']:
         }
         
         quote_resp = requests.post(ltp_url, json=payload, headers=headers)
+        st.session_state['debug_response'] = quote_resp.text  # Capture exact raw response from Angel One
+        
         if quote_resp.text and quote_resp.text.strip():
             quote_data = quote_resp.json()
             if quote_data and quote_data.get('status') and quote_data.get('data'):
@@ -109,13 +112,8 @@ if st.session_state['logged_in'] and st.session_state['jwt_token']:
                         ltp_tcs = float(val)
                     elif symbol == 'INFY-EQ' and val is not None:
                         ltp_infy = float(val)
-            else:
-                api_error_msg = quote_data.get('message', 'Failed to fetch quote data.')
     except Exception as ex:
-        api_error_msg = str(ex)
-
-if api_error_msg:
-    st.error(f"API Quote Error: {api_error_msg}")
+        st.session_state['debug_response'] = str(ex)
 
 market_data = {
     "Token & Symbol": ["2885 (RELIANCE-EQ)", "11536 (TCS-EQ)", "1594 (INFY-EQ)"],
@@ -123,6 +121,10 @@ market_data = {
 }
 df_market = pd.DataFrame(market_data)
 st.dataframe(df_market, use_container_width=True)
+
+# Live API Response Debug Box to see exact error message from broker
+with st.expander("🔍 View Raw API Response Debugger"):
+    st.text(st.session_state['debug_response'])
 
 # TSL & Entry Controls
 st.subheader("⚙️ TSL & Entry Controls")
