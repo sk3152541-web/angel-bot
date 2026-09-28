@@ -88,7 +88,7 @@ def dashboard(request: Request):
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Terminal Pro (100% Real Broker Edition)</h2>
+        <h2>🚀 Cloud Trading Terminal Pro (Fast Non-Blocking Edition)</h2>
         
         <div class="grid-container">
             <!-- LEFT COLUMN -->
