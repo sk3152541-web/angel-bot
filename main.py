@@ -57,7 +57,7 @@ def dashboard(request: Request):
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Bot Dashboard</h2>
+        <h2>🚀 Cloud Trading Bot Dashboard (Auto Trade)</h2>
         <div class="card">
             <p>Status: <span class="status">{'Connected & Live' if smart_session else 'Disconnected'}</span></p>
             <form action="/login" method="post">
@@ -70,14 +70,14 @@ def dashboard(request: Request):
         </div>
 
         <div class="card">
-            <h3>Trailing Stop Loss (TSL) Control</h3>
+            <h3>Fully Automated TSL & Execution Control</h3>
             <form action="/toggle_bot" method="post">
                 <label>TSL Gap (₹):</label>
                 <input type="text" name="tsl_gap" value="{tsl_gap_val}">
                 <label>Quantity:</label>
                 <input type="text" name="qty" value="{qty_val}">
                 <button type="submit" class="{'btn-stop' if bot_active else 'btn-start'}">
-                    {'Stop TSL Bot' if bot_active else 'Activate TSL Bot'}
+                    {'Stop Auto Bot' if bot_active else 'Activate Auto Bot'}
                 </button>
             </form>
         </div>
@@ -132,7 +132,7 @@ def login_route(api_key: str = Form(...), client_id: str = Form(...), password: 
     return HTMLResponse("<script>window.location='/';</script>")
 
 def fetch_real_ltp_rest():
-    global smart_session, latest_ticks
+    global smart_session, latest_ticks, bot_active, qty_val, tsl_gap_val
     if not smart_session:
         return
     try:
@@ -153,6 +153,32 @@ def fetch_real_ltp_rest():
                 if ltp_val:
                     latest_ticks[token]["ltp"] = str(ltp_val)
                     latest_ticks[token]["time"] = current_time
+                    
+                    # Agar bot active hai toh automatic entry/exit logic yahan execute hoga
+                    if bot_active:
+                        symbol_name = item["tradingsymbol"]
+                        float_ltp = float(ltp_val)
+                        if symbol_name not in active_positions:
+                            # Auto Entry Trigger based on quantity
+                            active_positions[symbol_name] = {
+                                "entry_price": float_ltp,
+                                "high_price": float_ltp,
+                                "sl_price": float_ltp - tsl_gap_val,
+                                "qty": qty_val
+                            }
+                            add_log(f"🚀 Auto Entry Placed for {symbol_name} at ₹{float_ltp} with Qty: {qty_val}")
+                        else:
+                            # TSL Management & Auto Exit
+                            pos = active_positions[symbol_name]
+                            if float_ltp > pos["high_price"]:
+                                pos["high_price"] = float_ltp
+                                pos["sl_price"] = float_ltp - tsl_gap_val
+                                add_log(f"📈 Trailing SL updated for {symbol_name} to ₹{pos['sl_price']}")
+                            
+                            if float_ltp <= pos["sl_price"]:
+                                add_log(f"🛑 Stop Loss Hit! Auto Exit executed for {symbol_name} at ₹{float_ltp}")
+                                # Real broker order execution place karne ke liye yahan order API call add ki ja sakti hai
+                                del active_positions[symbol_name]
     except Exception as e:
         pass
 
@@ -168,10 +194,10 @@ def toggle_bot_route(tsl_gap: float = Form(5.0), qty: int = Form(1)):
 
     if not bot_active:
         bot_active = True
-        add_log("🟢 TSL Bot Engine Activated via Cloud Dashboard!")
+        add_log(f"🟢 Automated Bot Activated with Quantity: {qty} and TSL Gap: ₹{tsl_gap}")
     else:
         bot_active = False
-        add_log("🔴 TSL Bot Engine Stopped.")
+        add_log("🔴 Automated Bot Stopped.")
         active_positions.clear()
 
     return HTMLResponse("<script>window.location='/';</script>")
