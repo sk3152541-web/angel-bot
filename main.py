@@ -64,11 +64,11 @@ def dashboard(request: Request):
             th {{ background: #334155; color: #38bdf8; }}
             .logs {{ background: #090d16; color: #38bdf8; padding: 8px; font-family: monospace; font-size: 11px; height: 80px; overflow-y: scroll; border: 1px solid #334155; }}
             .status {{ font-weight: bold; color: {'#4ade80' if smart_session else '#facc15'}; }}
-            #chart-container {{ width: 100%; height: 210px; margin-top: 5px; }}
+            #chart-container {{ width: 100%; height: 210px; margin-top: 5px; position: relative; }}
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Terminal Pro (Smart Edition)</h2>
+        <h2>🚀 Cloud Trading Terminal Pro (Fixed Chart Edition)</h2>
         
         <div class="grid-container">
             <!-- LEFT COLUMN -->
@@ -85,7 +85,7 @@ def dashboard(request: Request):
                 </div>
 
                 <div class="card">
-                    <h3>Add Company to Watchlist (No Token Needed!)</h3>
+                    <h3>Add Company to Watchlist</h3>
                     <form action="/add_stock" method="post">
                         <input type="text" name="new_symbol" placeholder="Symbol (e.g. SBIN-EQ)" required>
                         <button type="submit" class="btn-refresh">➕ Add Company</button>
@@ -173,9 +173,11 @@ def dashboard(request: Request):
         <script>
             const chartContainer = document.getElementById('chart-container');
             const chart = LightweightCharts.createChart(chartContainer, {{
+                width: chartContainer.clientWidth,
+                height: 210,
                 layout: {{ background: {{ color: '#090d16' }}, textColor: '#f8fafc' }},
                 grid: {{ vertLines: {{ color: '#1e293b' }}, horzLines: {{ color: '#1e293b' }} }},
-                timeScale: {{ timeVisible: true, secondsVisible: true }}
+                timeScale: {{ timeVisible: true, secondsVisible: false }}
             }});
 
             const candleSeries = chart.addCandlestickSeries({{
@@ -183,33 +185,61 @@ def dashboard(request: Request):
                 wickUpColor: '#16a34a', wickDownColor: '#dc2626'
             }});
 
-            const historicalData = {{
-                "2026-09-28": {{
-                    "5m": [
-                        {{ time: '2026-09-28T09:15:00', open: 1190, high: 1205, low: 1188, close: 1200 }},
-                        {{ time: '2026-09-28T09:20:00', open: 1200, high: 1215, low: 1195, close: 1212 }},
-                        {{ time: '2026-09-28T09:25:00', open: 1212, high: 1220, low: 1208, close: 1215 }}
-                    ],
-                    "15m": [
-                        {{ time: '2026-09-28T09:15:00', open: 1180, high: 1210, low: 1175, close: 1205 }},
-                        {{ time: '2026-09-28T09:30:00', open: 1205, high: 1225, low: 1200, close: 1220 }}
-                    ]
+            // Reliable timestamp & candle generator using Unix Epoch seconds for Lightweight Charts
+            function generateIntradayData(dateStr, timeframe) {{
+                let data = [];
+                let basePrice = 1200.0;
+                let seed = 0;
+                for (let i = 0; i < dateStr.length; i++) {{ seed += dateStr.charCodeAt(i); }}
+                basePrice += (seed % 50);
+
+                let stepSeconds = 300; // 5m default
+                if (timeframe === '1m') stepSeconds = 60;
+                else if (timeframe === '15m') stepSeconds = 900;
+                else if (timeframe === '1h') stepSeconds = 3600;
+
+                // Create base timestamp for 09:15 AM on selected date
+                let baseDate = new Date(dateStr + 'T09:15:00');
+                let currentTime = Math.floor(baseDate.getTime() / 1000);
+                let endTime = Math.floor(new Date(dateStr + 'T15:30:00').getTime() / 1000);
+
+                let i = 0;
+                while (currentTime <= endTime) {{
+                    let fluctuation = (Math.sin(i + seed) * 10);
+                    let openPrice = basePrice + fluctuation;
+                    let closePrice = openPrice + (Math.cos(i * 0.5) * 5);
+                    let highPrice = Math.max(openPrice, closePrice) + 3;
+                    let lowPrice = Math.min(openPrice, closePrice) - 3;
+
+                    data.push({{
+                        time: currentTime,
+                        open: parseFloat(openPrice.toFixed(2)),
+                        high: parseFloat(highPrice.toFixed(2)),
+                        low: parseFloat(lowPrice.toFixed(2)),
+                        close: parseFloat(closePrice.toFixed(2))
+                    }});
+
+                    basePrice = closePrice;
+                    currentTime += stepSeconds;
+                    i++;
                 }}
-            }};
+                return data;
+            }}
 
             function updateChartParams() {{
                 const tf = document.getElementById('timeframeSelect').value;
                 const dt = document.getElementById('chartDate').value;
-                if(historicalData[dt] && historicalData[dt][tf]) {{
-                    candleSeries.setData(historicalData[dt][tf]);
-                }} else {{
-                    candleSeries.setData([
-                        {{ time: dt + 'T09:15:00', open: 1000, high: 1020, low: 990, close: 1010 }}
-                    ]);
-                }}
+                const chartData = generateIntradayData(dt, tf);
+                candleSeries.setData(chartData);
                 chart.timeScale().fitContent();
             }}
 
+            // Handle window resize dynamically
+            window.addEventListener('resize', () => {{
+                chart.resize(chartContainer.clientWidth, 210);
+            }});
+
+            document.getElementById('chartDate').value = "{selected_date}";
             updateChartParams();
         </script>
     </body>
