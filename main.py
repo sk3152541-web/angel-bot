@@ -68,7 +68,7 @@ def dashboard(request: Request):
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Terminal Pro (Solid Chart Edition)</h2>
+        <h2>🚀 Cloud Trading Terminal Pro (Kick Fixed Edition)</h2>
         
         <div class="grid-container">
             <!-- LEFT COLUMN -->
@@ -171,31 +171,42 @@ def dashboard(request: Request):
         </div>
 
         <script>
-            const container = document.getElementById('chart-container');
-            // Ensure container has fallback width if clientWidth is 0 during load
-            const chartWidth = container.clientWidth > 0 ? container.clientWidth : 500;
-            
-            const chart = LightweightCharts.createChart(container, {{
-                width: chartWidth,
-                height: 210,
-                layout: {{ background: {{ color: '#090d16' }}, textColor: '#f8fafc' }},
-                grid: {{ vertLines: {{ color: '#1e293b' }}, horzLines: {{ color: '#1e293b' }} }},
-                timeScale: {{ timeVisible: true, secondsVisible: false }}
-            }});
+            let chart, candleSeries;
 
-            const candleSeries = chart.addCandlestickSeries({{
-                upColor: '#16a34a', downColor: '#dc2626', borderVisible: false,
-                wickUpColor: '#16a34a', wickDownColor: '#dc2626'
-            }});
+            window.onload = function() {{
+                const container = document.getElementById('chart-container');
+                
+                chart = LightweightCharts.createChart(container, {{
+                    width: container.clientWidth || 600,
+                    height: 210,
+                    layout: {{ background: {{ color: '#090d16' }}, textColor: '#f8fafc' }},
+                    grid: {{ vertLines: {{ color: '#1e293b' }}, horzLines: {{ color: '#1e293b' }} }},
+                    timeScale: {{ timeVisible: true, secondsVisible: false }}
+                }});
+
+                candleSeries = chart.addCandlestickSeries({{
+                    upColor: '#16a34a', downColor: '#dc2626', borderVisible: false,
+                    wickUpColor: '#16a34a', wickDownColor: '#dc2626'
+                }});
+
+                document.getElementById('chartDate').value = "{selected_date}";
+                updateChartParams();
+
+                window.addEventListener('resize', () => {{
+                    if (container.clientWidth > 0) {{
+                        chart.resize(container.clientWidth, 210);
+                    }}
+                }});
+            }};
 
             function generateIntradayData(dateStr, timeframe) {{
                 let data = [];
-                let basePrice = 1200.0;
+                let basePrice = 1250.0;
                 let seed = 0;
                 for (let i = 0; i < dateStr.length; i++) {{ seed += dateStr.charCodeAt(i); }}
-                basePrice += (seed % 50);
+                basePrice += (seed % 40);
 
-                let stepSeconds = 300; // 5m
+                let stepSeconds = 300; 
                 if (timeframe === '1m') stepSeconds = 60;
                 else if (timeframe === '15m') stepSeconds = 900;
                 else if (timeframe === '1h') stepSeconds = 3600;
@@ -206,11 +217,11 @@ def dashboard(request: Request):
 
                 let i = 0;
                 while (currentTime <= endTime) {{
-                    let fluctuation = (Math.sin(i + seed) * 12);
+                    let fluctuation = (Math.sin(i + seed) * 15);
                     let openPrice = basePrice + fluctuation;
-                    let closePrice = openPrice + (Math.cos(i * 0.5) * 6);
-                    let highPrice = Math.max(openPrice, closePrice) + 4;
-                    let lowPrice = Math.min(openPrice, closePrice) - 4;
+                    let closePrice = openPrice + (Math.cos(i * 0.4) * 8);
+                    let highPrice = Math.max(openPrice, closePrice) + 5;
+                    let lowPrice = Math.min(openPrice, closePrice) - 5;
 
                     data.push({{
                         time: currentTime,
@@ -228,21 +239,13 @@ def dashboard(request: Request):
             }}
 
             function updateChartParams() {{
+                if (!candleSeries) return;
                 const tf = document.getElementById('timeframeSelect').value;
                 const dt = document.getElementById('chartDate').value;
                 const chartData = generateIntradayData(dt, tf);
                 candleSeries.setData(chartData);
                 chart.timeScale().fitContent();
             }}
-
-            window.addEventListener('resize', () => {{
-                if (container.clientWidth > 0) {{
-                    chart.resize(container.clientWidth, 210);
-                }}
-            }});
-
-            document.getElementById('chartDate').value = "{selected_date}";
-            updateChartParams();
         </script>
     </body>
     </html>
