@@ -14,7 +14,7 @@ watchlist = [
     {"token": "2885", "symbol": "RELIANCE-EQ", "ltp": "-", "time": "-"},
     {"token": "11536", "symbol": "TCS-EQ", "ltp": "-", "time": "-"},
     {"token": "1594", "symbol": "INFY-EQ", "ltp": "-", "time": "-"}
-}
+]
 bot_logs = []
 tsl_gap_val = 5.0
 qty_val = 1
@@ -292,7 +292,7 @@ def fetch_real_ltp_rest():
                         else:
                             pos = active_positions[symbol_name]
                             if float_ltp > pos["high_price"]:
-                                pos["high_paper"] = float_ltp
+                                pos["high_price"] = float_ltp
                                 pos["sl_price"] = float_ltp - tsl_gap_val
                                 add_log(f"📈 Trailing SL updated for {symbol_name} to ₹{pos['sl_price']}")
                             
