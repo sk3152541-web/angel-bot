@@ -6,7 +6,7 @@ from SmartApi import SmartConnect
 
 app = FastAPI()
 
-# Global variables for session and bot state
+# Global variables for session, bot state and candles
 smart_session = None
 bot_active = False
 active_positions = {}
@@ -20,6 +20,7 @@ tsl_gap_val = 5.0
 qty_val = 1
 selected_timeframe = "FIVE_MINUTE"
 selected_date = "2026-09-28"
+latest_candles = []
 
 def add_log(msg):
     IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
@@ -31,7 +32,7 @@ def add_log(msg):
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
-    global bot_active, watchlist, bot_logs, tsl_gap_val, qty_val, selected_timeframe, selected_date
+    global bot_active, watchlist, bot_logs, tsl_gap_val, qty_val, selected_timeframe, selected_date, latest_candles
     
     if smart_session:
         fetch_real_ltp_rest()
@@ -159,8 +160,7 @@ def dashboard(request: Request):
                             <select name="chart_symbol" style="width: 90px; margin:0; padding:4px;">
     """
     for item in watchlist:
-        selected_attr = "selected" if item["symbol"] == "RELIANCE-EQ" else ""
-        html_content += f'<option value="{item["symbol"]}" {selected_attr}>{item["symbol"]}</option>'
+        html_content += f'<option value="{item["symbol"]}">{item["symbol"]}</option>'
 
     html_content += f"""
                             </select>
@@ -198,8 +198,7 @@ def dashboard(request: Request):
                     wickUpColor: '#16a34a', wickDownColor: '#dc2626'
                 }});
 
-                // Real Data injected from Backend API Response
-                const realApiCandles = {app.get("latest_candles", [])};
+                const realApiCandles = {latest_candles};
                 if (realApiCandles && realApiCandles.length > 0) {{
                     candleSeries.setData(realApiCandles);
                     chart.timeScale().fitContent();
@@ -216,9 +215,6 @@ def dashboard(request: Request):
     </html>
     """
     return html_content
-
-# Temporary store for fetched real candles to render in HTML
-app.state.latest_candles = []
 
 @app.post("/login")
 def login_route(api_key: str = Form(...), client_id: str = Form(...), password: str = Form(...), totp_key: str = Form(...)):
@@ -243,21 +239,19 @@ def login_route(api_key: str = Form(...), client_id: str = Form(...), password: 
 
 @app.post("/fetch_chart")
 def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...), chart_tf: str = Form(...)):
-    global smart_session
+    global smart_session, latest_candles
     if not smart_session:
         add_log("⚠️ Cannot fetch real history: SmartAPI not connected!")
         return HTMLResponse("<script>window.location='/';</script>")
     
     try:
         obj = smart_session["obj"]
-        # Find token from watchlist
-        token = "2885" # default reliance
+        token = "2885"
         for item in watchlist:
             if item["symbol"] == chart_symbol:
                 token = item["token"]
                 break
 
-        # Format start and end date for Angel One API (Format: YYYY-MM-DD HH:MM)
         from_date = f"{chart_date} 09:15"
         to_date = f"{chart_date} 15:30"
 
@@ -275,8 +269,6 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
         if response and response.get('status') and 'data' in response:
             raw_data = response['data']
             for candle in raw_data:
-                # Angel One candle format: [Timestamp, Open, High, Low, Close, Volume]
-                # Convert ISO string timestamp to Unix epoch timestamp for Lightweight Charts
                 dt_obj = datetime.datetime.fromisoformat(candle[0].replace('Z', '+00:00'))
                 epoch_time = int(dt_obj.timestamp())
                 
@@ -291,7 +283,7 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
         else:
             add_log(f"⚠️ Failed to fetch historical data from broker: {response.get('message', 'No data')}")
 
-        app.state.latest_candles = formatted_candles
+        latest_candles = formatted_candles
     except Exception as e:
         add_log(f"❌ Chart Error: {str(e)}")
 
