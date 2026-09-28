@@ -18,7 +18,7 @@ watchlist = [
 bot_logs = []
 tsl_gap_val = 5.0
 qty_val = 1
-selected_timeframe = "5m"
+selected_timeframe = "FIVE_MINUTE"
 selected_date = "2026-09-28"
 
 def add_log(msg):
@@ -68,7 +68,7 @@ def dashboard(request: Request):
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Terminal Pro (Kick Fixed Edition)</h2>
+        <h2>🚀 Cloud Trading Terminal Pro (100% Real API Edition)</h2>
         
         <div class="grid-container">
             <!-- LEFT COLUMN -->
@@ -154,16 +154,25 @@ def dashboard(request: Request):
 
                 <div class="card">
                     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 5px;">
-                        <h3 style="margin:0;">History & Timeframe Chart</h3>
-                        <div style="display: flex; gap: 5px; align-items: center;">
-                            <input type="date" id="chartDate" value="{selected_date}" style="width: 110px; margin:0; padding:4px;" onchange="updateChartParams()">
-                            <select id="timeframeSelect" style="width: 70px; margin:0; padding:4px;" onchange="updateChartParams()">
-                                <option value="1m" {'selected' if selected_timeframe=='1m' else ''}>1m</option>
-                                <option value="5m" {'selected' if selected_timeframe=='5m' else ''}>5m</option>
-                                <option value="15m" {'selected' if selected_timeframe=='15m' else ''}>15m</option>
-                                <option value="1h" {'selected' if selected_timeframe=='1h' else ''}>1h</option>
+                        <h3 style="margin:0;">Real API History & Chart</h3>
+                        <form action="/fetch_chart" method="post" style="display: flex; gap: 5px; align-items: center; margin:0; width:auto;">
+                            <select name="chart_symbol" style="width: 90px; margin:0; padding:4px;">
+    """
+    for item in watchlist:
+        selected_attr = "selected" if item["symbol"] == "RELIANCE-EQ" else ""
+        html_content += f'<option value="{item["symbol"]}" {selected_attr}>{item["symbol"]}</option>'
+
+    html_content += f"""
                             </select>
-                        </div>
+                            <input type="date" name="chart_date" value="{selected_date}" style="width: 110px; margin:0; padding:4px;">
+                            <select name="chart_tf" style="width: 70px; margin:0; padding:4px;">
+                                <option value="ONE_MINUTE">1m</option>
+                                <option value="FIVE_MINUTE" selected>5m</option>
+                                <option value="FIFTEEN_MINUTE">15m</option>
+                                <option value="ONE_HOUR">1h</option>
+                            </select>
+                            <button type="submit" style="width: 60px; margin:0; padding:4px; background:#0284c7; cursor:pointer;">Load</button>
+                        </form>
                     </div>
                     <div id="chart-container"></div>
                 </div>
@@ -189,8 +198,12 @@ def dashboard(request: Request):
                     wickUpColor: '#16a34a', wickDownColor: '#dc2626'
                 }});
 
-                document.getElementById('chartDate').value = "{selected_date}";
-                updateChartParams();
+                // Real Data injected from Backend API Response
+                const realApiCandles = {app.get("latest_candles", [])};
+                if (realApiCandles && realApiCandles.length > 0) {{
+                    candleSeries.setData(realApiCandles);
+                    chart.timeScale().fitContent();
+                }}
 
                 window.addEventListener('resize', () => {{
                     if (container.clientWidth > 0) {{
@@ -198,59 +211,14 @@ def dashboard(request: Request):
                     }}
                 }});
             }};
-
-            function generateIntradayData(dateStr, timeframe) {{
-                let data = [];
-                let basePrice = 1250.0;
-                let seed = 0;
-                for (let i = 0; i < dateStr.length; i++) {{ seed += dateStr.charCodeAt(i); }}
-                basePrice += (seed % 40);
-
-                let stepSeconds = 300; 
-                if (timeframe === '1m') stepSeconds = 60;
-                else if (timeframe === '15m') stepSeconds = 900;
-                else if (timeframe === '1h') stepSeconds = 3600;
-
-                let baseDate = new Date(dateStr + 'T09:15:00');
-                let currentTime = Math.floor(baseDate.getTime() / 1000);
-                let endTime = Math.floor(new Date(dateStr + 'T15:30:00').getTime() / 1000);
-
-                let i = 0;
-                while (currentTime <= endTime) {{
-                    let fluctuation = (Math.sin(i + seed) * 15);
-                    let openPrice = basePrice + fluctuation;
-                    let closePrice = openPrice + (Math.cos(i * 0.4) * 8);
-                    let highPrice = Math.max(openPrice, closePrice) + 5;
-                    let lowPrice = Math.min(openPrice, closePrice) - 5;
-
-                    data.push({{
-                        time: currentTime,
-                        open: parseFloat(openPrice.toFixed(2)),
-                        high: parseFloat(highPrice.toFixed(2)),
-                        low: parseFloat(lowPrice.toFixed(2)),
-                        close: parseFloat(closePrice.toFixed(2))
-                    }});
-
-                    basePrice = closePrice;
-                    currentTime += stepSeconds;
-                    i++;
-                }}
-                return data;
-            }}
-
-            function updateChartParams() {{
-                if (!candleSeries) return;
-                const tf = document.getElementById('timeframeSelect').value;
-                const dt = document.getElementById('chartDate').value;
-                const chartData = generateIntradayData(dt, tf);
-                candleSeries.setData(chartData);
-                chart.timeScale().fitContent();
-            }}
         </script>
     </body>
     </html>
     """
     return html_content
+
+# Temporary store for fetched real candles to render in HTML
+app.state.latest_candles = []
 
 @app.post("/login")
 def login_route(api_key: str = Form(...), client_id: str = Form(...), password: str = Form(...), totp_key: str = Form(...)):
@@ -271,6 +239,62 @@ def login_route(api_key: str = Form(...), client_id: str = Form(...), password: 
     except Exception as e:
         add_log(f"❌ Login Error: {str(e)}")
     
+    return HTMLResponse("<script>window.location='/';</script>")
+
+@app.post("/fetch_chart")
+def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...), chart_tf: str = Form(...)):
+    global smart_session
+    if not smart_session:
+        add_log("⚠️ Cannot fetch real history: SmartAPI not connected!")
+        return HTMLResponse("<script>window.location='/';</script>")
+    
+    try:
+        obj = smart_session["obj"]
+        # Find token from watchlist
+        token = "2885" # default reliance
+        for item in watchlist:
+            if item["symbol"] == chart_symbol:
+                token = item["token"]
+                break
+
+        # Format start and end date for Angel One API (Format: YYYY-MM-DD HH:MM)
+        from_date = f"{chart_date} 09:15"
+        to_date = f"{chart_date} 15:30"
+
+        historicParam = {
+            "exchange": "NSE",
+            "symboltoken": token,
+            "interval": chart_tf,
+            "fromdate": from_date,
+            "todate": to_date
+        }
+
+        response = obj.getCandleData(historicParam)
+        formatted_candles = []
+        
+        if response and response.get('status') and 'data' in response:
+            raw_data = response['data']
+            for candle in raw_data:
+                # Angel One candle format: [Timestamp, Open, High, Low, Close, Volume]
+                # Convert ISO string timestamp to Unix epoch timestamp for Lightweight Charts
+                dt_obj = datetime.datetime.fromisoformat(candle[0].replace('Z', '+00:00'))
+                epoch_time = int(dt_obj.timestamp())
+                
+                formatted_candles.append({
+                    "time": epoch_time,
+                    "open": float(candle[1]),
+                    "high": float(candle[2]),
+                    "low": float(candle[3]),
+                    "close": float(candle[4])
+                })
+            add_log(f"📊 Successfully fetched real historical candles for {chart_symbol} from Angel One!")
+        else:
+            add_log(f"⚠️ Failed to fetch historical data from broker: {response.get('message', 'No data')}")
+
+        app.state.latest_candles = formatted_candles
+    except Exception as e:
+        add_log(f"❌ Chart Error: {str(e)}")
+
     return HTMLResponse("<script>window.location='/';</script>")
 
 @app.post("/add_stock")
