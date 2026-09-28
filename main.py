@@ -40,89 +40,103 @@ def dashboard(request: Request):
     <head>
         <title>Cloud Trading Terminal Pro</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <!-- TradingView Lightweight Charts CDN -->
         <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
         <style>
-            body {{ background-color: #0f172a; color: #f8fafc; font-family: Arial, sans-serif; margin: 0; padding: 15px; }}
-            h2 {{ color: #38bdf8; text-align: center; }}
-            .card {{ background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 15px; margin-bottom: 15px; }}
-            input, select, button {{ width: 100%; padding: 10px; margin: 5px 0; background: #334155; color: #fff; border: 1px solid #475569; border-radius: 4px; box-sizing: border-box; }}
+            body {{ background-color: #0f172a; color: #f8fafc; font-family: Arial, sans-serif; margin: 0; padding: 10px; }}
+            h2 {{ color: #38bdf8; text-align: center; margin-bottom: 10px; font-size: 20px; }}
+            
+            /* 2-Column Grid Layout to eliminate excessive scrolling */
+            .grid-container {{ display: grid; grid-template-columns: 1fr 1.5fr; gap: 10px; }}
+            @media (max-width: 900px) {{ .grid-container {{ grid-template-columns: 1fr; }} }}
+            
+            .card {{ background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 10px; margin-bottom: 10px; }}
+            h3 {{ margin-top: 0; font-size: 14px; color: #38bdf8; }}
+            input, select, button {{ width: 100%; padding: 7px; margin: 4px 0; background: #334155; color: #fff; border: 1px solid #475569; border-radius: 4px; box-sizing: border-box; font-size: 12px; }}
             .btn-connect {{ background: #0284c7; font-weight: bold; cursor: pointer; }}
             .btn-start {{ background: #16a34a; font-weight: bold; cursor: pointer; }}
             .btn-stop {{ background: #dc2626; font-weight: bold; cursor: pointer; }}
-            .btn-refresh {{ background: #475569; font-weight: bold; cursor: pointer; margin-top: 5px; }}
-            table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
-            th, td {{ border: 1px solid #334155; padding: 8px; text-align: center; font-size: 14px; }}
+            .btn-refresh {{ background: #475569; font-weight: bold; cursor: pointer; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 5px; }}
+            th, td {{ border: 1px solid #334155; padding: 5px; text-align: center; font-size: 12px; }}
             th {{ background: #334155; color: #38bdf8; }}
-            .logs {{ background: #090d16; color: #38bdf8; padding: 10px; font-family: monospace; font-size: 11px; height: 150px; overflow-y: scroll; border: 1px solid #334155; }}
+            .logs {{ background: #090d16; color: #38bdf8; padding: 8px; font-family: monospace; font-size: 11px; height: 90px; overflow-y: scroll; border: 1px solid #334155; }}
             .status {{ font-weight: bold; color: {'#4ade80' if smart_session else '#facc15'}; }}
-            #chart-container {{ width: 100%; height: 350px; margin-top: 10px; }}
+            #chart-container {{ width: 100%; height: 220px; margin-top: 5px; }}
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Terminal Pro (Auto + Charts)</h2>
+        <h2>🚀 Cloud Trading Terminal Pro (Compact View)</h2>
         
-        <div class="card">
-            <p>Status: <span class="status">{'Connected & Live' if smart_session else 'Disconnected'}</span></p>
-            <form action="/login" method="post">
-                <input type="text" name="api_key" placeholder="API Key" required>
-                <input type="text" name="client_id" placeholder="Client ID" required>
-                <input type="password" name="password" placeholder="Password / MPIN" required>
-                <input type="password" name="totp_key" placeholder="TOTP Secret Key" required>
-                <button type="submit" class="btn-connect">Connect Live Feed</button>
-            </form>
-        </div>
+        <div class="grid-container">
+            <!-- LEFT COLUMN: Controls & Login -->
+            <div>
+                <div class="card">
+                    <p style="margin:0 0 5px 0; font-size:13px;">Status: <span class="status">{'Connected & Live' if smart_session else 'Disconnected'}</span></p>
+                    <form action="/login" method="post">
+                        <input type="text" name="api_key" placeholder="API Key" required>
+                        <input type="text" name="client_id" placeholder="Client ID" required>
+                        <input type="password" name="password" placeholder="Password / MPIN" required>
+                        <input type="password" name="totp_key" placeholder="TOTP Secret Key" required>
+                        <button type="submit" class="btn-connect">Connect Live Feed</button>
+                    </form>
+                </div>
 
-        <div class="card">
-            <h3>Fully Automated TSL & Execution Control</h3>
-            <form action="/toggle_bot" method="post">
-                <label>TSL Gap (₹):</label>
-                <input type="text" name="tsl_gap" value="{tsl_gap_val}">
-                <label>Quantity:</label>
-                <input type="text" name="qty" value="{qty_val}">
-                <button type="submit" class="{'btn-stop' if bot_active else 'btn-start'}">
-                    {'Stop Auto Bot' if bot_active else 'Activate Auto Bot'}
-                </button>
-            </form>
-        </div>
+                <div class="card">
+                    <h3>Automated TSL & Execution</h3>
+                    <form action="/toggle_bot" method="post">
+                        <label style="font-size:11px;">TSL Gap (₹):</label>
+                        <input type="text" name="tsl_gap" value="{tsl_gap_val}">
+                        <label style="font-size:11px;">Quantity:</label>
+                        <input type="text" name="qty" value="{qty_val}">
+                        <button type="submit" class="{'btn-stop' if bot_active else 'btn-start'}">
+                            {'Stop Auto Bot' if bot_active else 'Activate Auto Bot'}
+                        </button>
+                    </form>
+                </div>
 
-        <div class="card">
-            <h3>Live Market Ticks & Pro Charts</h3>
-            <table>
-                <tr><th>Symbol</th><th>Live LTP (₹)</th><th>Last Updated (IST)</th></tr>
-    """
-    for token, data in latest_ticks.items():
-        html_content += f"<tr><td>{data['symbol']}</td><td>₹{data['ltp']}</td><td>{data['time']}</td></tr>"
-
-    html_content += f"""
-            </table>
-            <button onclick="location.reload();" class="btn-refresh">🔄 Refresh Market Prices & Chart</button>
-            
-            <div style="margin-top: 15px;">
-                <label>Select Indicator / View Mode:</label>
-                <select id="indicatorSelect">
-                    <option value="heiken">Heikin Ashi Candlesticks</option>
-                    <option value="rsi">RSI (Relative Strength Index)</option>
-                    <option value="macd">MACD Momentum</option>
-                    <option value="bollinger">Bollinger Bands</option>
-                </select>
-            </div>
-            <div id="chart-container"></div>
-        </div>
-
-        <div class="card">
-            <h3>Execution & Bot Logs</h3>
-            <div class="logs">
+                <div class="card">
+                    <h3>Execution & Bot Logs</h3>
+                    <div class="logs">
     """
     for log in reversed(bot_logs):
         html_content += f"{log}<br>"
 
     html_content += f"""
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT COLUMN: Market Ticks, Chart & Indicators -->
+            <div>
+                <div class="card">
+                    <h3>Live Market Ticks (NSE)</h3>
+                    <table>
+                        <tr><th>Symbol</th><th>Live LTP (₹)</th><th>Last Updated</th></tr>
+    """
+    for token, data in latest_ticks.items():
+        html_content += f"<tr><td>{data['symbol']}</td><td>₹{data['ltp']}</td><td>{data['time']}</td></tr>"
+
+    html_content += f"""
+                    </table>
+                    <button onclick="location.reload();" class="btn-refresh" style="margin-top:5px;">🔄 Refresh Prices & Chart</button>
+                </div>
+
+                <div class="card">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin:0;">Pro Chart & Indicators</h3>
+                        <select id="indicatorSelect" style="width: 140px; margin:0;">
+                            <option value="heiken">Heikin Ashi</option>
+                            <option value="rsi">RSI</option>
+                            <option value="macd">MACD</option>
+                            <option value="bollinger">Bollinger Bands</option>
+                        </select>
+                    </div>
+                    <div id="chart-container"></div>
+                </div>
             </div>
         </div>
 
         <script>
-            // Initialize TradingView Lightweight Chart
             const chartContainer = document.getElementById('chart-container');
             const chart = LightweightCharts.createChart(chartContainer, {{
                 layout: {{ background: {{ color: '#090d16' }}, textColor: '#f8fafc' }},
@@ -135,7 +149,6 @@ def dashboard(request: Request):
                 wickUpColor: '#16a34a', wickDownColor: '#dc2626'
             }});
 
-            // Sample real-time synced data simulation for chart demonstration
             const initialData = [
                 {{ time: '2026-09-28T09:15:00', open: 1200, high: 1210, low: 1195, close: 1205 }},
                 {{ time: '2026-09-28T10:00:00', open: 1205, high: 1215, low: 1200, close: 1212 }},
