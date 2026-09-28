@@ -31,7 +31,6 @@ def add_log(msg):
 def dashboard(request: Request):
     global bot_active, latest_ticks, bot_logs, tsl_gap_val, qty_val
     
-    # Har baar page refresh hone par live real LTP fetch hoga broker se
     if smart_session:
         fetch_real_ltp_rest()
     
@@ -41,7 +40,6 @@ def dashboard(request: Request):
     <head>
         <title>Cloud Trading Bot Dashboard</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta http-equiv="refresh" content="5">
         <style>
             body {{ background-color: #0f172a; color: #f8fafc; font-family: Arial, sans-serif; margin: 0; padding: 15px; }}
             h2 {{ color: #38bdf8; text-align: center; }}
@@ -50,6 +48,7 @@ def dashboard(request: Request):
             .btn-connect {{ background: #0284c7; font-weight: bold; cursor: pointer; }}
             .btn-start {{ background: #16a34a; font-weight: bold; cursor: pointer; }}
             .btn-stop {{ background: #dc2626; font-weight: bold; cursor: pointer; }}
+            .btn-refresh {{ background: #475569; font-weight: bold; cursor: pointer; margin-top: 5px; }}
             table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
             th, td {{ border: 1px solid #334155; padding: 8px; text-align: center; font-size: 14px; }}
             th {{ background: #334155; color: #38bdf8; }}
@@ -58,7 +57,7 @@ def dashboard(request: Request):
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Bot Dashboard (Live)</h2>
+        <h2>🚀 Cloud Trading Bot Dashboard</h2>
         <div class="card">
             <p>Status: <span class="status">{'Connected & Live' if smart_session else 'Disconnected'}</span></p>
             <form action="/login" method="post">
@@ -93,6 +92,7 @@ def dashboard(request: Request):
 
     html_content += f"""
             </table>
+            <button onclick="location.reload();" class="btn-refresh">🔄 Refresh Market Prices</button>
         </div>
 
         <div class="card">
