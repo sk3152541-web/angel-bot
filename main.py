@@ -1,4 +1,5 @@
 import datetime
+import json
 import pyotp
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse
@@ -6,12 +7,11 @@ from SmartApi import SmartConnect
 
 app = FastAPI()
 
-# Global variables for session, bot state and candles
+# Global variables for session, bot state and real candles
 smart_session = None
 bot_active = False
 active_positions = {}
 
-# Real Token Dictionary for Angel One NSE Stocks
 STOCK_TOKENS = {
     "RELIANCE-EQ": "2885",
     "TCS-EQ": "11536",
@@ -35,7 +35,7 @@ watchlist = [
 bot_logs = []
 tsl_gap_val = 5.0
 qty_val = 1
-selected_timeframe = "FIVE_MINUTE"
+selected_timeframe = "5"
 selected_date = "2026-09-28"
 latest_candles = []
 
@@ -53,6 +53,8 @@ def dashboard(request: Request):
     
     if smart_session:
         fetch_real_ltp_rest()
+    
+    candles_json = json.dumps(latest_candles)
     
     html_content = f"""
     <!DOCTYPE html>
@@ -82,7 +84,7 @@ def dashboard(request: Request):
             th {{ background: #334155; color: #38bdf8; }}
             .logs {{ background: #090d16; color: #38bdf8; padding: 8px; font-family: monospace; font-size: 11px; height: 80px; overflow-y: scroll; border: 1px solid #334155; }}
             .status {{ font-weight: bold; color: {'#4ade80' if smart_session else '#facc15'}; }}
-            #chart-container {{ width: 100%; height: 210px; margin-top: 5px; }}
+            #chart-container {{ width: 100%; height: 210px; margin-top: 5px; position: relative; }}
         </style>
     </head>
     <body>
@@ -183,10 +185,10 @@ def dashboard(request: Request):
                             </select>
                             <input type="date" name="chart_date" value="{selected_date}" style="width: 110px; margin:0; padding:4px;">
                             <select name="chart_tf" style="width: 70px; margin:0; padding:4px;">
-                                <option value="ONE_MINUTE">1m</option>
-                                <option value="FIVE_MINUTE" selected>5m</option>
-                                <option value="FIFTEEN_MINUTE">15m</option>
-                                <option value="ONE_HOUR">1h</option>
+                                <option value="1">1m</option>
+                                <option value="5" selected>5m</option>
+                                <option value="15">15m</option>
+                                <option value="60">1h</option>
                             </select>
                             <button type="submit" style="width: 60px; margin:0; padding:4px; background:#0284c7; cursor:pointer;">Load</button>
                         </form>
@@ -215,7 +217,7 @@ def dashboard(request: Request):
                     wickUpColor: '#16a34a', wickDownColor: '#dc2626'
                 }});
 
-                const realApiCandles = {latest_candles};
+                const realApiCandles = {candles_json};
                 if (realApiCandles && realApiCandles.length > 0) {{
                     candleSeries.setData(realApiCandles);
                     chart.timeScale().fitContent();
@@ -263,8 +265,6 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
     
     try:
         obj = smart_session["obj"]
-        
-        # Get real token from dictionary or fallback to default
         token = STOCK_TOKENS.get(chart_symbol, "2885")
         for item in watchlist:
             if item["symbol"] == chart_symbol and item["token"] != "99999":
@@ -302,10 +302,12 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
         else:
             msg = response.get('message', 'No data') if response else 'No response'
             add_log(f"⚠️ Failed to fetch broker history for {chart_symbol}: {msg}")
+            formatted_candles = []
 
         latest_candles = formatted_candles
     except Exception as e:
         add_log(f"❌ Chart Error: {str(e)}")
+        latest_candles = []
 
     return HTMLResponse("<script>window.location='/';</script>")
 
@@ -318,7 +320,6 @@ def add_stock_route(new_symbol: str = Form(...)):
             add_log(f"⚠️ Stock {sym} already exists in watchlist!")
             return HTMLResponse("<script>window.location='/';</script>")
     
-    # Assign real token if available in dictionary, else default
     token = STOCK_TOKENS.get(sym, "2885")
     watchlist.append({"token": token, "symbol": sym, "ltp": "-", "time": "-"})
     add_log(f"➕ Successfully added {sym} with real token to Watchlist!")
