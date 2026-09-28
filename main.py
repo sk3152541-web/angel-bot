@@ -64,11 +64,11 @@ def dashboard(request: Request):
             th {{ background: #334155; color: #38bdf8; }}
             .logs {{ background: #090d16; color: #38bdf8; padding: 8px; font-family: monospace; font-size: 11px; height: 80px; overflow-y: scroll; border: 1px solid #334155; }}
             .status {{ font-weight: bold; color: {'#4ade80' if smart_session else '#facc15'}; }}
-            #chart-container {{ width: 100%; height: 210px; margin-top: 5px; position: relative; }}
+            #chart-container {{ width: 100%; height: 210px; margin-top: 5px; }}
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Terminal Pro (Fixed Chart Edition)</h2>
+        <h2>🚀 Cloud Trading Terminal Pro (Solid Chart Edition)</h2>
         
         <div class="grid-container">
             <!-- LEFT COLUMN -->
@@ -171,9 +171,12 @@ def dashboard(request: Request):
         </div>
 
         <script>
-            const chartContainer = document.getElementById('chart-container');
-            const chart = LightweightCharts.createChart(chartContainer, {{
-                width: chartContainer.clientWidth,
+            const container = document.getElementById('chart-container');
+            // Ensure container has fallback width if clientWidth is 0 during load
+            const chartWidth = container.clientWidth > 0 ? container.clientWidth : 500;
+            
+            const chart = LightweightCharts.createChart(container, {{
+                width: chartWidth,
                 height: 210,
                 layout: {{ background: {{ color: '#090d16' }}, textColor: '#f8fafc' }},
                 grid: {{ vertLines: {{ color: '#1e293b' }}, horzLines: {{ color: '#1e293b' }} }},
@@ -185,7 +188,6 @@ def dashboard(request: Request):
                 wickUpColor: '#16a34a', wickDownColor: '#dc2626'
             }});
 
-            // Reliable timestamp & candle generator using Unix Epoch seconds for Lightweight Charts
             function generateIntradayData(dateStr, timeframe) {{
                 let data = [];
                 let basePrice = 1200.0;
@@ -193,23 +195,22 @@ def dashboard(request: Request):
                 for (let i = 0; i < dateStr.length; i++) {{ seed += dateStr.charCodeAt(i); }}
                 basePrice += (seed % 50);
 
-                let stepSeconds = 300; // 5m default
+                let stepSeconds = 300; // 5m
                 if (timeframe === '1m') stepSeconds = 60;
                 else if (timeframe === '15m') stepSeconds = 900;
                 else if (timeframe === '1h') stepSeconds = 3600;
 
-                // Create base timestamp for 09:15 AM on selected date
                 let baseDate = new Date(dateStr + 'T09:15:00');
                 let currentTime = Math.floor(baseDate.getTime() / 1000);
                 let endTime = Math.floor(new Date(dateStr + 'T15:30:00').getTime() / 1000);
 
                 let i = 0;
                 while (currentTime <= endTime) {{
-                    let fluctuation = (Math.sin(i + seed) * 10);
+                    let fluctuation = (Math.sin(i + seed) * 12);
                     let openPrice = basePrice + fluctuation;
-                    let closePrice = openPrice + (Math.cos(i * 0.5) * 5);
-                    let highPrice = Math.max(openPrice, closePrice) + 3;
-                    let lowPrice = Math.min(openPrice, closePrice) - 3;
+                    let closePrice = openPrice + (Math.cos(i * 0.5) * 6);
+                    let highPrice = Math.max(openPrice, closePrice) + 4;
+                    let lowPrice = Math.min(openPrice, closePrice) - 4;
 
                     data.push({{
                         time: currentTime,
@@ -234,9 +235,10 @@ def dashboard(request: Request):
                 chart.timeScale().fitContent();
             }}
 
-            // Handle window resize dynamically
             window.addEventListener('resize', () => {{
-                chart.resize(chartContainer.clientWidth, 210);
+                if (container.clientWidth > 0) {{
+                    chart.resize(container.clientWidth, 210);
+                }}
             }});
 
             document.getElementById('chartDate').value = "{selected_date}";
