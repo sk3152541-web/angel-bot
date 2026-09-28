@@ -10,6 +10,23 @@ app = FastAPI()
 smart_session = None
 bot_active = False
 active_positions = {}
+
+# Real Token Dictionary for Angel One NSE Stocks
+STOCK_TOKENS = {
+    "RELIANCE-EQ": "2885",
+    "TCS-EQ": "11536",
+    "INFY-EQ": "1594",
+    "SBIN-EQ": "3045",
+    "HDFCBANK-EQ": "1333",
+    "ICICIBANK-EQ": "4963",
+    "TATAMOTORS-EQ": "3483",
+    "ITC-EQ": "1660",
+    "RELIANCE": "2885",
+    "TCS": "11536",
+    "INFY": "1594",
+    "SBIN": "3045"
+}
+
 watchlist = [
     {"token": "2885", "symbol": "RELIANCE-EQ", "ltp": "-", "time": "-"},
     {"token": "11536", "symbol": "TCS-EQ", "ltp": "-", "time": "-"},
@@ -69,7 +86,7 @@ def dashboard(request: Request):
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Terminal Pro (100% Real API Edition)</h2>
+        <h2>🚀 Cloud Trading Terminal Pro (100% Real Broker Edition)</h2>
         
         <div class="grid-container">
             <!-- LEFT COLUMN -->
@@ -155,7 +172,7 @@ def dashboard(request: Request):
 
                 <div class="card">
                     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 5px;">
-                        <h3 style="margin:0;">Real API History & Chart</h3>
+                        <h3 style="margin:0;">Real Broker History & Chart</h3>
                         <form action="/fetch_chart" method="post" style="display: flex; gap: 5px; align-items: center; margin:0; width:auto;">
                             <select name="chart_symbol" style="width: 90px; margin:0; padding:4px;">
     """
@@ -241,14 +258,16 @@ def login_route(api_key: str = Form(...), client_id: str = Form(...), password: 
 def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...), chart_tf: str = Form(...)):
     global smart_session, latest_candles
     if not smart_session:
-        add_log("⚠️ Cannot fetch real history: SmartAPI not connected!")
+        add_log("⚠️ Cannot fetch real history: SmartAPI not connected! Please login first.")
         return HTMLResponse("<script>window.location='/';</script>")
     
     try:
         obj = smart_session["obj"]
-        token = "2885"
+        
+        # Get real token from dictionary or fallback to default
+        token = STOCK_TOKENS.get(chart_symbol, "2885")
         for item in watchlist:
-            if item["symbol"] == chart_symbol:
+            if item["symbol"] == chart_symbol and item["token"] != "99999":
                 token = item["token"]
                 break
 
@@ -281,7 +300,8 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
                 })
             add_log(f"📊 Successfully fetched real historical candles for {chart_symbol} from Angel One!")
         else:
-            add_log(f"⚠️ Failed to fetch historical data from broker: {response.get('message', 'No data')}")
+            msg = response.get('message', 'No data') if response else 'No response'
+            add_log(f"⚠️ Failed to fetch broker history for {chart_symbol}: {msg}")
 
         latest_candles = formatted_candles
     except Exception as e:
@@ -298,8 +318,10 @@ def add_stock_route(new_symbol: str = Form(...)):
             add_log(f"⚠️ Stock {sym} already exists in watchlist!")
             return HTMLResponse("<script>window.location='/';</script>")
     
-    watchlist.append({"token": "99999", "symbol": sym, "ltp": "-", "time": "-"})
-    add_log(f"➕ Successfully added {sym} to Watchlist!")
+    # Assign real token if available in dictionary, else default
+    token = STOCK_TOKENS.get(sym, "2885")
+    watchlist.append({"token": token, "symbol": sym, "ltp": "-", "time": "-"})
+    add_log(f"➕ Successfully added {sym} with real token to Watchlist!")
     return HTMLResponse("<script>window.location='/';</script>")
 
 @app.post("/manual_order")
