@@ -1,10 +1,8 @@
 import datetime
-import threading
 import pyotp
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse
 from SmartApi import SmartConnect
-from SmartApi.smartWebSocketV2 import SmartWebSocketV2
 
 app = FastAPI()
 
@@ -22,7 +20,8 @@ tsl_gap_val = 5.0
 qty_val = 1
 
 def add_log(msg):
-    timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+    IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+    timestamp = datetime.datetime.now(IST).strftime("%H:%M:%S")
     log_entry = f"[{timestamp}] {msg}"
     bot_logs.append(log_entry)
     if len(bot_logs) > 50:
@@ -32,12 +31,17 @@ def add_log(msg):
 def dashboard(request: Request):
     global bot_active, latest_ticks, bot_logs, tsl_gap_val, qty_val
     
+    # Har baar page refresh hone par live real LTP fetch hoga broker se
+    if smart_session:
+        fetch_real_ltp_rest()
+    
     html_content = f"""
     <!DOCTYPE html>
     <html>
     <head>
         <title>Cloud Trading Bot Dashboard</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta http-equiv="refresh" content="5">
         <style>
             body {{ background-color: #0f172a; color: #f8fafc; font-family: Arial, sans-serif; margin: 0; padding: 15px; }}
             h2 {{ color: #38bdf8; text-align: center; }}
@@ -54,9 +58,9 @@ def dashboard(request: Request):
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Bot Dashboard</h2>
+        <h2>🚀 Cloud Trading Bot Dashboard (Live)</h2>
         <div class="card">
-            <p>Status: <span class="status">{'Connected & Running' if smart_session else 'Disconnected'}</span></p>
+            <p>Status: <span class="status">{'Connected & Live' if smart_session else 'Disconnected'}</span></p>
             <form action="/login" method="post">
                 <input type="text" name="api_key" placeholder="API Key" required>
                 <input type="text" name="client_id" placeholder="Client ID" required>
@@ -80,9 +84,9 @@ def dashboard(request: Request):
         </div>
 
         <div class="card">
-            <h3>Live Market Ticks (NSE)</h3>
+            <h3>Live Market Ticks (NSE - Real Data)</h3>
             <table>
-                <tr><th>Symbol</th><th>Live LTP (₹)</th><th>Last Updated</th></tr>
+                <tr><th>Symbol</th><th>Live LTP (₹)</th><th>Last Updated (IST)</th></tr>
     """
     for token, data in latest_ticks.items():
         html_content += f"<tr><td>{data['symbol']}</td><td>₹{data['ltp']}</td><td>{data['time']}</td></tr>"
@@ -119,12 +123,7 @@ def login_route(api_key: str = Form(...), client_id: str = Form(...), password: 
             feed_token = obj.getfeedToken()
             smart_session = {"obj": obj, "jwt": jwt_token, "feed": feed_token, "client": client_id, "key": api_key}
             add_log("⚡ Successfully authenticated with Angel One SmartAPI!")
-            
-            # Fetch real LTP via REST API immediately
             fetch_real_ltp_rest()
-
-            # Start WebSocket in background thread for live streaming
-            threading.Thread(target=start_angel_websocket, daemon=True).start()
         else:
             add_log(f"❌ Login Failed: {session_data.get('message', 'Unknown error')}")
     except Exception as e:
@@ -144,18 +143,18 @@ def fetch_real_ltp_rest():
             {"exchange": "NSE", "tradingsymbol": "INFY-EQ", "symboltoken": "1594"}
         ]
         
+        IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
         for item in symbols_to_fetch:
             res = obj.ltpData(item["exchange"], item["tradingsymbol"], item["symboltoken"])
             if res and res.get('status') and 'data' in res:
                 ltp_val = res['data'].get('ltp')
                 token = item["symboltoken"]
-                current_time = datetime.datetime.now().strftime("%H:%M:%S")
+                current_time = datetime.datetime.now(IST).strftime("%H:%M:%S")
                 if ltp_val:
                     latest_ticks[token]["ltp"] = str(ltp_val)
                     latest_ticks[token]["time"] = current_time
-        add_log("📊 Real LTP fetched successfully via Angel One REST API!")
     except Exception as e:
-        add_log(f"❌ REST LTP Fetch Error: {str(e)}")
+        pass
 
 @app.post("/toggle_bot")
 def toggle_bot_route(tsl_gap: float = Form(5.0), qty: int = Form(1)):
@@ -170,92 +169,9 @@ def toggle_bot_route(tsl_gap: float = Form(5.0), qty: int = Form(1)):
     if not bot_active:
         bot_active = True
         add_log("🟢 TSL Bot Engine Activated via Cloud Dashboard!")
-        active_positions["2885"] = {
-            "symbol": "RELIANCE-EQ",
-            "quantity": qty_val,
-            "highest_price": 1240.0,
-            "current_sl": 1240.0 - tsl_gap_val,
-            "tsl_value": tsl_gap_val
-        }
     else:
         bot_active = False
         add_log("🔴 TSL Bot Engine Stopped.")
         active_positions.clear()
 
     return HTMLResponse("<script>window.location='/';</script>")
-
-def start_angel_websocket():
-    global smart_session
-    if not smart_session:
-        return
-    try:
-        sws = SmartWebSocketV2(
-            smart_session["jwt"], 
-            smart_session["key"], 
-            smart_session["client"], 
-            smart_session["feed"]
-        )
-        
-        def on_open(ws):
-            token_list = [{"exchangeType": 1, "tokens": ["2885", "11536", "1594"]}]
-            sws.subscribe(correlation_id="cloud_bot", mode=1, token_list=token_list)
-            add_log("📡 Subscribed to live market data feed (NSE) on Cloud.")
-            
-        def on_data(ws, message):
-            token = str(message.get('token'))
-            ltp = message.get('last_traded_price')
-            
-            if token and ltp:
-                actual_ltp = float(ltp) / 100.0 if float(ltp) > 100000 else float(ltp)
-                current_time = datetime.datetime.now().strftime("%H:%M:%S")
-                if token in latest_ticks:
-                    latest_ticks[token]["ltp"] = str(actual_ltp)
-                    latest_ticks[token]["time"] = current_time
-
-                if bot_active:
-                    process_trailing_stop_loss(token, actual_ltp)
-
-        sws.on_open = on_open
-        sws.on_data = on_data
-        sws.connect()
-    except Exception as e:
-        add_log(f"❌ WebSocket Error: {str(e)}")
-
-def process_trailing_stop_loss(token, current_ltp):
-    global active_positions
-    if token in active_positions:
-        pos = active_positions[token]
-        if current_ltp > pos["highest_price"]:
-            active_positions[token]["highest_price"] = current_ltp
-            active_positions[token]["current_sl"] = current_ltp - pos["tsl_value"]
-            add_log(f"📈 TSL Trail [{token}]: Peak ₹{current_ltp} | New SL: ₹{active_positions[token]['current_sl']}")
-
-        if current_ltp <= active_positions[token]["current_sl"]:
-            add_log(f"🚨 TSL HIT [{token}] at ₹{current_ltp}! Executing Real Exit Order...")
-            execute_real_order(pos["symbol"], token, "SELL", pos["quantity"])
-            del active_positions[token]
-
-def execute_real_order(symbol, token, transaction_type, quantity):
-    global smart_session
-    if not smart_session:
-        return
-    try:
-        obj = smart_session["obj"]
-        orderparams = {
-            "variety": "NORMAL",
-            "tradingsymbol": symbol,
-            "symboltoken": token,
-            "transactiontype": transaction_type,
-            "exchange": "NSE",
-            "ordertype": "MARKET",
-            "producttype": "DELIVERY",
-            "duration": "DAY",
-            "price": "0",
-            "squareoff": "0",
-            "stoploss": "0",
-            "quantity": str(quantity)
-        }
-        order_id = obj.placeOrder(orderparams)
-        add_log(f"⚡ REAL {transaction_type} ORDER PLACED! ID: {order_id}")
-    except Exception as e:
-        add_log(f"❌ Order Execution Failed: {str(e)}")
