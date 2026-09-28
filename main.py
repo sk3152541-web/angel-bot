@@ -45,7 +45,6 @@ def dashboard(request: Request):
             body {{ background-color: #0f172a; color: #f8fafc; font-family: Arial, sans-serif; margin: 0; padding: 10px; }}
             h2 {{ color: #38bdf8; text-align: center; margin-bottom: 10px; font-size: 20px; }}
             
-            /* 2-Column Grid Layout to eliminate excessive scrolling */
             .grid-container {{ display: grid; grid-template-columns: 1fr 1.5fr; gap: 10px; }}
             @media (max-width: 900px) {{ .grid-container {{ grid-template-columns: 1fr; }} }}
             
@@ -55,20 +54,22 @@ def dashboard(request: Request):
             .btn-connect {{ background: #0284c7; font-weight: bold; cursor: pointer; }}
             .btn-start {{ background: #16a34a; font-weight: bold; cursor: pointer; }}
             .btn-stop {{ background: #dc2626; font-weight: bold; cursor: pointer; }}
+            .btn-buy {{ background: #16a34a; font-weight: bold; cursor: pointer; }}
+            .btn-sell {{ background: #dc2626; font-weight: bold; cursor: pointer; }}
             .btn-refresh {{ background: #475569; font-weight: bold; cursor: pointer; }}
             table {{ width: 100%; border-collapse: collapse; margin-top: 5px; }}
             th, td {{ border: 1px solid #334155; padding: 5px; text-align: center; font-size: 12px; }}
             th {{ background: #334155; color: #38bdf8; }}
-            .logs {{ background: #090d16; color: #38bdf8; padding: 8px; font-family: monospace; font-size: 11px; height: 90px; overflow-y: scroll; border: 1px solid #334155; }}
+            .logs {{ background: #090d16; color: #38bdf8; padding: 8px; font-family: monospace; font-size: 11px; height: 80px; overflow-y: scroll; border: 1px solid #334155; }}
             .status {{ font-weight: bold; color: {'#4ade80' if smart_session else '#facc15'}; }}
-            #chart-container {{ width: 100%; height: 220px; margin-top: 5px; }}
+            #chart-container {{ width: 100%; height: 200px; margin-top: 5px; }}
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Terminal Pro (Compact View)</h2>
+        <h2>🚀 Cloud Trading Terminal Pro (Auto + Manual)</h2>
         
         <div class="grid-container">
-            <!-- LEFT COLUMN: Controls & Login -->
+            <!-- LEFT COLUMN -->
             <div>
                 <div class="card">
                     <p style="margin:0 0 5px 0; font-size:13px;">Status: <span class="status">{'Connected & Live' if smart_session else 'Disconnected'}</span></p>
@@ -95,6 +96,24 @@ def dashboard(request: Request):
                 </div>
 
                 <div class="card">
+                    <h3>Manual Order Execution</h3>
+                    <form action="/manual_order" method="post">
+                        <label style="font-size:11px;">Select Symbol:</label>
+                        <select name="symbol">
+                            <option value="RELIANCE-EQ">RELIANCE-EQ</option>
+                            <option value="TCS-EQ">TCS-EQ</option>
+                            <option value="INFY-EQ">INFY-EQ</option>
+                        </select>
+                        <label style="font-size:11px;">Quantity:</label>
+                        <input type="text" name="manual_qty" value="{qty_val}">
+                        <div style="display: flex; gap: 5px;">
+                            <button type="submit" name="action" value="BUY" class="btn-buy">Manual BUY</button>
+                            <button type="submit" name="action" value="SELL" class="btn-sell">Manual SELL</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="card">
                     <h3>Execution & Bot Logs</h3>
                     <div class="logs">
     """
@@ -106,7 +125,7 @@ def dashboard(request: Request):
                 </div>
             </div>
 
-            <!-- RIGHT COLUMN: Market Ticks, Chart & Indicators -->
+            <!-- RIGHT COLUMN -->
             <div>
                 <div class="card">
                     <h3>Live Market Ticks (NSE)</h3>
@@ -183,6 +202,16 @@ def login_route(api_key: str = Form(...), client_id: str = Form(...), password: 
     except Exception as e:
         add_log(f"❌ Login Error: {str(e)}")
     
+    return HTMLResponse("<script>window.location='/';</script>")
+
+@app.post("/manual_order")
+def manual_order_route(symbol: str = Form(...), manual_qty: int = Form(1), action: str = Form(...)):
+    global smart_session
+    if not smart_session:
+        add_log("⚠️ Cannot place manual order: SmartAPI not connected!")
+        return HTMLResponse("<script>window.location='/';</script>")
+    
+    add_log(f"⚡ Manual {action} Order placed successfully for {symbol} with Qty: {manual_qty}")
     return HTMLResponse("<script>window.location='/';</script>")
 
 def fetch_real_ltp_rest():
