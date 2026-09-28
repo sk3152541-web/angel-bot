@@ -10,14 +10,15 @@ app = FastAPI()
 smart_session = None
 bot_active = False
 active_positions = {}
-latest_ticks = {
-    "2885": {"symbol": "RELIANCE-EQ", "ltp": "-", "time": "-"},
-    "11536": {"symbol": "TCS-EQ", "ltp": "-", "time": "-"},
-    "1594": {"symbol": "INFY-EQ", "ltp": "-", "time": "-"}
-}
+watchlist = [
+    {"token": "2885", "symbol": "RELIANCE-EQ", "ltp": "-", "time": "-"},
+    {"token": "11536", "symbol": "TCS-EQ", "ltp": "-", "time": "-"},
+    {"token": "1594", "symbol": "INFY-EQ", "ltp": "-", "time": "-"}
+]
 bot_logs = []
 tsl_gap_val = 5.0
 qty_val = 1
+selected_timeframe = "5m"
 
 def add_log(msg):
     IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
@@ -29,7 +30,7 @@ def add_log(msg):
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
-    global bot_active, latest_ticks, bot_logs, tsl_gap_val, qty_val
+    global bot_active, watchlist, bot_logs, tsl_gap_val, qty_val, selected_timeframe
     
     if smart_session:
         fetch_real_ltp_rest()
@@ -62,11 +63,11 @@ def dashboard(request: Request):
             th {{ background: #334155; color: #38bdf8; }}
             .logs {{ background: #090d16; color: #38bdf8; padding: 8px; font-family: monospace; font-size: 11px; height: 80px; overflow-y: scroll; border: 1px solid #334155; }}
             .status {{ font-weight: bold; color: {'#4ade80' if smart_session else '#facc15'}; }}
-            #chart-container {{ width: 100%; height: 200px; margin-top: 5px; }}
+            #chart-container {{ width: 100%; height: 210px; margin-top: 5px; }}
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Terminal Pro (Auto + Manual)</h2>
+        <h2>🚀 Cloud Trading Terminal Pro (Ultimate Edition)</h2>
         
         <div class="grid-container">
             <!-- LEFT COLUMN -->
@@ -79,6 +80,15 @@ def dashboard(request: Request):
                         <input type="password" name="password" placeholder="Password / MPIN" required>
                         <input type="password" name="totp_key" placeholder="TOTP Secret Key" required>
                         <button type="submit" class="btn-connect">Connect Live Feed</button>
+                    </form>
+                </div>
+
+                <div class="card">
+                    <h3>Add Company to Watchlist</h3>
+                    <form action="/add_stock" method="post">
+                        <input type="text" name="new_symbol" placeholder="Symbol (e.g. SBIN-EQ)" required>
+                        <input type="text" name="new_token" placeholder="Token ID (e.g. 3045)" required>
+                        <button type="submit" class="btn-refresh">➕ Add Stock</button>
                     </form>
                 </div>
 
@@ -100,9 +110,11 @@ def dashboard(request: Request):
                     <form action="/manual_order" method="post">
                         <label style="font-size:11px;">Select Symbol:</label>
                         <select name="symbol">
-                            <option value="RELIANCE-EQ">RELIANCE-EQ</option>
-                            <option value="TCS-EQ">TCS-EQ</option>
-                            <option value="INFY-EQ">INFY-EQ</option>
+    """
+    for item in watchlist:
+        html_content += f'<option value="{item["symbol"]}">{item["symbol"]}</option>'
+
+    html_content += f"""
                         </select>
                         <label style="font-size:11px;">Quantity:</label>
                         <input type="text" name="manual_qty" value="{qty_val}">
@@ -128,27 +140,35 @@ def dashboard(request: Request):
             <!-- RIGHT COLUMN -->
             <div>
                 <div class="card">
-                    <h3>Live Market Ticks (NSE)</h3>
+                    <h3>Live Market Watchlist</h3>
                     <table>
                         <tr><th>Symbol</th><th>Live LTP (₹)</th><th>Last Updated</th></tr>
     """
-    for token, data in latest_ticks.items():
-        html_content += f"<tr><td>{data['symbol']}</td><td>₹{data['ltp']}</td><td>{data['time']}</td></tr>"
+    for item in watchlist:
+        html_content += f"<tr><td>{item['symbol']}</td><td>₹{item['ltp']}</td><td>{item['time']}</td></tr>"
 
     html_content += f"""
                     </table>
-                    <button onclick="location.reload();" class="btn-refresh" style="margin-top:5px;">🔄 Refresh Prices & Chart</button>
+                    <button onclick="location.reload();" class="btn-refresh" style="margin-top:5px;">🔄 Refresh Prices & History</button>
                 </div>
 
                 <div class="card">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <h3 style="margin:0;">Pro Chart & Indicators</h3>
-                        <select id="indicatorSelect" style="width: 140px; margin:0;">
-                            <option value="heiken">Heikin Ashi</option>
-                            <option value="rsi">RSI</option>
-                            <option value="macd">MACD</option>
-                            <option value="bollinger">Bollinger Bands</option>
-                        </select>
+                        <h3 style="margin:0;">History & Timeframe Chart</h3>
+                        <div style="display: flex; gap: 5px;">
+                            <select id="timeframeSelect" style="width: 80px; margin:0;" onchange="updateTimeframe(this.value)">
+                                <option value="1m" {'selected' if selected_timeframe=='1m' else ''}>1m</option>
+                                <option value="5m" {'selected' if selected_timeframe=='5m' else ''}>5m</option>
+                                <option value="15m" {'selected' if selected_timeframe=='15m' else ''}>15m</option>
+                                <option value="1h" {'selected' if selected_timeframe=='1h' else ''}>1h</option>
+                            </select>
+                            <select id="indicatorSelect" style="width: 100px; margin:0;">
+                                <option value="heiken">Heikin Ashi</option>
+                                <option value="rsi">RSI</option>
+                                <option value="macd">MACD</option>
+                                <option value="bollinger">Bollinger</option>
+                            </select>
+                        </div>
                     </div>
                     <div id="chart-container"></div>
                 </div>
@@ -168,15 +188,37 @@ def dashboard(request: Request):
                 wickUpColor: '#16a34a', wickDownColor: '#dc2626'
             }});
 
-            const initialData = [
-                {{ time: '2026-09-28T09:15:00', open: 1200, high: 1210, low: 1195, close: 1205 }},
-                {{ time: '2026-09-28T10:00:00', open: 1205, high: 1215, low: 1200, close: 1212 }},
-                {{ time: '2026-09-28T11:00:00', open: 1212, high: 1220, low: 1208, close: 1210 }},
-                {{ time: '2026-09-28T12:00:00', open: 1210, high: 1218, low: 1205, close: 1216 }},
-                {{ time: '2026-09-28T13:00:00', open: 1216, high: 1225, low: 1212, close: 1222 }}
-            ];
-            candleSeries.setData(initialData);
-            chart.timeScale().fitContent();
+            // Historical Data Feed Simulation across Timeframes
+            const historicalData = {{
+                "1m": [
+                    {{ time: '2026-09-28T10:30:00', open: 1200, high: 1205, low: 1198, close: 1202 }},
+                    {{ time: '2026-09-28T10:31:00', open: 1202, high: 1208, low: 1201, close: 1206 }},
+                    {{ time: '2026-09-28T10:32:00', open: 1206, high: 1210, low: 1204, close: 1209 }}
+                ],
+                "5m": [
+                    {{ time: '2026-09-28T09:15:00', open: 1190, high: 1205, low: 1188, close: 1200 }},
+                    {{ time: '2026-09-28T09:20:00', open: 1200, high: 1215, low: 1195, close: 1212 }},
+                    {{ time: '2026-09-28T09:25:00', open: 1212, high: 1220, low: 1208, close: 1215 }}
+                ],
+                "15m": [
+                    {{ time: '2026-09-28T09:15:00', open: 1180, high: 1210, low: 1175, close: 1205 }},
+                    {{ time: '2026-09-28T09:30:00', open: 1205, high: 1225, low: 1200, close: 1220 }}
+                ],
+                "1h": [
+                    {{ time: '2026-09-28T09:15:00', open: 1170, high: 1225, low: 1165, close: 1215 }},
+                    {{ time: '2026-09-28T10:15:00', open: 1215, high: 1240, low: 1210, close: 1235 }}
+                ]
+            }};
+
+            function updateTimeframe(tf) {{
+                if(historicalData[tf]) {{
+                    candleSeries.setData(historicalData[tf]);
+                    chart.timeScale().fitContent();
+                }}
+            }}
+
+            // Load default timeframe data
+            updateTimeframe("{selected_timeframe}");
         </script>
     </body>
     </html>
@@ -204,6 +246,18 @@ def login_route(api_key: str = Form(...), client_id: str = Form(...), password: 
     
     return HTMLResponse("<script>window.location='/';</script>")
 
+@app.post("/add_stock")
+def add_stock_route(new_symbol: str = Form(...), new_token: str = Form(...)):
+    global watchlist
+    for item in watchlist:
+        if item["token"] == new_token or item["symbol"] == new_symbol:
+            add_log(f"⚠️ Stock {new_symbol} already exists in watchlist!")
+            return HTMLResponse("<script>window.location='/';</script>")
+    
+    watchlist.append({"token": new_token, "symbol": new_symbol.upper(), "ltp": "-", "time": "-"})
+    add_log(f"➕ Successfully added {new_symbol.upper()} to Watchlist!")
+    return HTMLResponse("<script>window.location='/';</script>")
+
 @app.post("/manual_order")
 def manual_order_route(symbol: str = Form(...), manual_qty: int = Form(1), action: str = Form(...)):
     global smart_session
@@ -215,30 +269,24 @@ def manual_order_route(symbol: str = Form(...), manual_qty: int = Form(1), actio
     return HTMLResponse("<script>window.location='/';</script>")
 
 def fetch_real_ltp_rest():
-    global smart_session, latest_ticks, bot_active, qty_val, tsl_gap_val
+    global smart_session, watchlist, bot_active, qty_val, tsl_gap_val
     if not smart_session:
         return
     try:
         obj = smart_session["obj"]
-        symbols_to_fetch = [
-            {"exchange": "NSE", "tradingsymbol": "RELIANCE-EQ", "symboltoken": "2885"},
-            {"exchange": "NSE", "tradingsymbol": "TCS-EQ", "symboltoken": "11536"},
-            {"exchange": "NSE", "tradingsymbol": "INFY-EQ", "symboltoken": "1594"}
-        ]
-        
         IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
-        for item in symbols_to_fetch:
-            res = obj.ltpData(item["exchange"], item["tradingsymbol"], item["symboltoken"])
+        
+        for item in watchlist:
+            res = obj.ltpData("NSE", item["symbol"], item["token"])
             if res and res.get('status') and 'data' in res:
                 ltp_val = res['data'].get('ltp')
-                token = item["symboltoken"]
                 current_time = datetime.datetime.now(IST).strftime("%H:%M:%S")
                 if ltp_val:
-                    latest_ticks[token]["ltp"] = str(ltp_val)
-                    latest_ticks[token]["time"] = current_time
+                    item["ltp"] = str(ltp_val)
+                    item["time"] = current_time
                     
                     if bot_active:
-                        symbol_name = item["tradingsymbol"]
+                        symbol_name = item["symbol"]
                         float_ltp = float(ltp_val)
                         if symbol_name not in active_positions:
                             active_positions[symbol_name] = {
@@ -261,7 +309,7 @@ def fetch_real_ltp_rest():
     except Exception as e:
         pass
 
-@app.post("/toggle_bot")
+@app.toggle_bot if hasattr(app, 'toggle_bot') else app.post("/toggle_bot")
 def toggle_bot_route(tsl_gap: float = Form(5.0), qty: int = Form(1)):
     global bot_active, smart_session, active_positions, tsl_gap_val, qty_val
     tsl_gap_val = tsl_gap
