@@ -1,5 +1,6 @@
 import datetime
 import json
+import time
 import pyotp
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse
@@ -88,7 +89,7 @@ def dashboard(request: Request):
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Terminal Pro (Debug Logging Edition)</h2>
+        <h2>🚀 Cloud Trading Terminal Pro (Rate-Limit Safe Edition)</h2>
         
         <div class="grid-container">
             <!-- LEFT COLUMN -->
@@ -248,6 +249,7 @@ def login_route(api_key: str = Form(...), client_id: str = Form(...), password: 
             feed_token = obj.getfeedToken()
             smart_session = {"obj": obj, "jwt": jwt_token, "feed": feed_token, "client": client_id, "key": api_key}
             add_log("⚡ Successfully authenticated with Angel One SmartAPI!")
+            time.sleep(1) # Safe pause to respect rate limit
             fetch_real_ltp_rest()
         else:
             add_log(f"❌ Login Failed: {session_data.get('message', 'Unknown error')}")
@@ -283,6 +285,7 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
         }
 
         add_log(f"🔄 Requesting candles for {chart_symbol} (Token: {token}) from {from_date}...")
+        time.sleep(1) # Brief pause before calling historical API to prevent rate limit error
         response = obj.getCandleData(historicParam)
         formatted_candles = []
         
@@ -302,7 +305,7 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
             add_log(f"📊 Success! Fetched {len(formatted_candles)} real candles for {chart_symbol}.")
         else:
             msg = response.get('message', 'Unknown error') if response else 'No response from broker'
-            add_log(f"⚠️ Broker rejected history request: {msg}")
+            add_log(f"⚠️ Broker history response: {msg}")
             formatted_candles = []
 
         latest_candles = formatted_candles
@@ -345,6 +348,7 @@ def fetch_real_ltp_rest():
         IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
         
         for item in watchlist:
+            time.sleep(0.5) # Prevent rate limit while polling multiple LTPs
             res = obj.ltpData("NSE", item["symbol"], item["token"])
             if res and res.get('status') and 'data' in res:
                 ltp_val = res['data'].get('ltp')
