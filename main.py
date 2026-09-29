@@ -88,7 +88,7 @@ def dashboard(request: Request):
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Terminal Pro (Master Bulletproof Edition)</h2>
+        <h2>🚀 Cloud Trading Terminal Pro (Auto-Retry Ultimate Edition)</h2>
         
         <div class="grid-container">
             <!-- LEFT COLUMN -->
@@ -203,8 +203,6 @@ def dashboard(request: Request):
 
             window.onload = function() {{
                 const container = document.getElementById('chart-container');
-                
-                // Use offsetWidth or fallback to ensure non-zero chart width
                 let chartWidth = container.clientWidth || container.offsetWidth || 500;
 
                 chart = LightweightCharts.createChart(container, {{
@@ -226,7 +224,6 @@ def dashboard(request: Request):
                     chart.timeScale().fitContent();
                 }}
 
-                // Force resize after layout settles
                 setTimeout(() => {{
                     if (container.clientWidth > 0) {{
                         chart.resize(container.clientWidth, 210);
@@ -294,10 +291,22 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
         }
 
         add_log(f"🔄 Fetching real candles for {chart_symbol} (Token: {token})...")
-        time.sleep(0.5)
-        response = obj.getCandleData(historicParam)
-        formatted_candles = []
         
+        response = None
+        # Automatic Retry mechanism for rate limit bypass
+        for attempt in range(3):
+            time.sleep(1.0)
+            response = obj.getCandleData(historicParam)
+            if response and response.get('status'):
+                break
+            else:
+                msg = response.get('message', '') if response else ''
+                if 'rate' in msg.lower() or 'access denied' in msg.lower():
+                    add_log(f"⚠️ Rate limited, auto-retrying attempt {attempt+1}...")
+                    continue
+                break
+
+        formatted_candles = []
         if response and response.get('status') and 'data' in response:
             raw_data = response['data']
             for candle in raw_data:
@@ -380,7 +389,7 @@ def fetch_real_ltp_rest():
                             pos = active_positions[symbol_name]
                             if float_ltp > pos["high_price"]:
                                 pos["high_price"] = float_ltp
-                                pos["sl_profile"] = float_ltp - tsl_gap_val
+                                pos["sl_price"] = float_ltp - tsl_gap_val
                                 add_log(f"📈 Trailing SL updated for {symbol_name} to ₹{pos['sl_price']}")
                             
                             if float_ltp <= pos["sl_price"]:
