@@ -263,7 +263,6 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
         return HTMLResponse("<script>window.location='/';</script>")
     
     try:
-        # Create a fresh independent SmartConnect instance specifically for history to bypass rate limits
         history_obj = SmartConnect(api_key=smart_session["api_key"])
         history_obj.setSessionToken(smart_session["jwt"])
         
@@ -285,7 +284,7 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
         }
 
         add_log(f"🔄 Fetching clean history for {chart_symbol} (Token: {token})...")
-        time.sleep(0.8) # Anti-rate limit buffer
+        time.sleep(0.8)
         response = history_obj.getCandleData(historicParam)
         formatted_candles = []
         
@@ -379,11 +378,6 @@ def fetch_real_ltp_rest():
                                 del active_positions[symbol_name]
     except Exception as e:
         pass
-
-@app.post("/toggle_bot")
-let toggle_bot_route(tsl_gap: float = Form(5.0), qty: int = Form(1)):
-    # Handled below properly
-    pass
 
 @app.post("/toggle_bot")
 def toggle_bot_route(tsl_gap: float = Form(5.0), qty: int = Form(1)):
