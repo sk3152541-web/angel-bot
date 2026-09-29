@@ -88,7 +88,7 @@ def dashboard(request: Request):
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Terminal Pro (Rate-Limit Bypass Edition)</h2>
+        <h2>🚀 Cloud Trading Terminal Pro (Master Bulletproof Edition)</h2>
         
         <div class="grid-container">
             <!-- LEFT COLUMN -->
@@ -246,7 +246,7 @@ def login_route(api_key: str = Form(...), client_id: str = Form(...), password: 
         if session_data and session_data.get('status'):
             jwt_token = session_data['data']['jwtToken']
             feed_token = obj.getfeedToken()
-            smart_session = {"obj": obj, "jwt": jwt_token, "feed": feed_token, "client": client_id, "key": api_key, "api_key": api_key}
+            smart_session = {"obj": obj, "jwt": jwt_token, "feed": feed_token, "client": client_id, "key": api_key}
             add_log("⚡ Successfully authenticated with Angel One SmartAPI!")
         else:
             add_log(f"❌ Login Failed: {session_data.get('message', 'Unknown error')}")
@@ -258,13 +258,13 @@ def login_route(api_key: str = Form(...), client_id: str = Form(...), password: 
 @app.post("/fetch_chart")
 def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...), chart_tf: str = Form(...)):
     global smart_session, latest_candles
-    if not smart_session:
+    if not smart_session or not smart_session.get("obj"):
         add_log("⚠️ Session missing! Please connect live feed first.")
         return HTMLResponse("<script>window.location='/';</script>")
     
     try:
-        history_obj = SmartConnect(api_key=smart_session["api_key"])
-        history_obj.setSessionToken(smart_session["jwt"])
+        # Use the exact active authenticated session object directly
+        obj = smart_session["obj"]
         
         token = STOCK_TOKENS.get(chart_symbol, "2885")
         for item in watchlist:
@@ -283,9 +283,9 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
             "todate": to_date
         }
 
-        add_log(f"🔄 Fetching clean history for {chart_symbol} (Token: {token})...")
-        time.sleep(0.8)
-        response = history_obj.getCandleData(historicParam)
+        add_log(f"🔄 Fetching real candles for {chart_symbol} (Token: {token})...")
+        time.sleep(0.5)
+        response = obj.getCandleData(historicParam)
         formatted_candles = []
         
         if response and response.get('status') and 'data' in response:
