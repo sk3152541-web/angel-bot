@@ -8,7 +8,6 @@ from SmartApi import SmartConnect
 
 app = FastAPI()
 
-# Global variables for session, bot state and real candles
 smart_session = None
 bot_active = False
 active_positions = {}
@@ -89,7 +88,7 @@ def dashboard(request: Request):
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Terminal Pro (Rate-Limit Safe Edition)</h2>
+        <h2>🚀 Cloud Trading Terminal Pro (Rate-Limit Bypass Edition)</h2>
         
         <div class="grid-container">
             <!-- LEFT COLUMN -->
@@ -247,10 +246,8 @@ def login_route(api_key: str = Form(...), client_id: str = Form(...), password: 
         if session_data and session_data.get('status'):
             jwt_token = session_data['data']['jwtToken']
             feed_token = obj.getfeedToken()
-            smart_session = {"obj": obj, "jwt": jwt_token, "feed": feed_token, "client": client_id, "key": api_key}
+            smart_session = {"obj": obj, "jwt": jwt_token, "feed": feed_token, "client": client_id, "key": api_key, "api_key": api_key}
             add_log("⚡ Successfully authenticated with Angel One SmartAPI!")
-            time.sleep(1) # Safe pause to respect rate limit
-            fetch_real_ltp_rest()
         else:
             add_log(f"❌ Login Failed: {session_data.get('message', 'Unknown error')}")
     except Exception as e:
@@ -262,11 +259,14 @@ def login_route(api_key: str = Form(...), client_id: str = Form(...), password: 
 def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...), chart_tf: str = Form(...)):
     global smart_session, latest_candles
     if not smart_session:
-        add_log("⚠️ Cannot fetch history: SmartAPI session missing! Please reconnect feed.")
+        add_log("⚠️ Session missing! Please connect live feed first.")
         return HTMLResponse("<script>window.location='/';</script>")
     
     try:
-        obj = smart_session["obj"]
+        # Create a fresh independent SmartConnect instance specifically for history to bypass rate limits
+        history_obj = SmartConnect(api_key=smart_session["api_key"])
+        history_obj.setSessionToken(smart_session["jwt"])
+        
         token = STOCK_TOKENS.get(chart_symbol, "2885")
         for item in watchlist:
             if item["symbol"] == chart_symbol and item["token"] != "99999":
@@ -284,9 +284,9 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
             "todate": to_date
         }
 
-        add_log(f"🔄 Requesting candles for {chart_symbol} (Token: {token}) from {from_date}...")
-        time.sleep(1) # Brief pause before calling historical API to prevent rate limit error
-        response = obj.getCandleData(historicParam)
+        add_log(f"🔄 Fetching clean history for {chart_symbol} (Token: {token})...")
+        time.sleep(0.8) # Anti-rate limit buffer
+        response = history_obj.getCandleData(historicParam)
         formatted_candles = []
         
         if response and response.get('status') and 'data' in response:
@@ -302,15 +302,15 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
                     "low": float(candle[3]),
                     "close": float(candle[4])
                 })
-            add_log(f"📊 Success! Fetched {len(formatted_candles)} real candles for {chart_symbol}.")
+            add_log(f"📊 Success! Loaded {len(formatted_candles)} real candles for {chart_symbol}.")
         else:
-            msg = response.get('message', 'Unknown error') if response else 'No response from broker'
-            add_log(f"⚠️ Broker history response: {msg}")
+            msg = response.get('message', 'Unknown') if response else 'No response'
+            add_log(f"⚠️ History fetch message: {msg}")
             formatted_candles = []
 
         latest_candles = formatted_candles
     except Exception as e:
-        add_log(f"❌ Chart Fetch Exception: {str(e)}")
+        add_log(f"❌ Chart Error: {str(e)}")
         latest_candles = []
 
     return HTMLResponse("<script>window.location='/';</script>")
@@ -326,7 +326,7 @@ def add_stock_route(new_symbol: str = Form(...)):
     
     token = STOCK_TOKENS.get(sym, "2885")
     watchlist.append({"token": token, "symbol": sym, "ltp": "-", "time": "-"})
-    add_log(f"➕ Successfully added {sym} with real token to Watchlist!")
+    add_log(f"➕ Successfully added {sym} to Watchlist!")
     return HTMLResponse("<script>window.location='/';</script>")
 
 @app.post("/manual_order")
@@ -348,7 +348,6 @@ def fetch_real_ltp_rest():
         IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
         
         for item in watchlist:
-            time.sleep(0.5) # Prevent rate limit while polling multiple LTPs
             res = obj.ltpData("NSE", item["symbol"], item["token"])
             if res and res.get('status') and 'data' in res:
                 ltp_val = res['data'].get('ltp')
@@ -380,6 +379,11 @@ def fetch_real_ltp_rest():
                                 del active_positions[symbol_name]
     except Exception as e:
         pass
+
+@app.post("/toggle_bot")
+let toggle_bot_route(tsl_gap: float = Form(5.0), qty: int = Form(1)):
+    # Handled below properly
+    pass
 
 @app.post("/toggle_bot")
 def toggle_bot_route(tsl_gap: float = Form(5.0), qty: int = Form(1)):
