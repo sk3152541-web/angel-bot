@@ -204,8 +204,11 @@ def dashboard(request: Request):
             window.onload = function() {{
                 const container = document.getElementById('chart-container');
                 
+                // Use offsetWidth or fallback to ensure non-zero chart width
+                let chartWidth = container.clientWidth || container.offsetWidth || 500;
+
                 chart = LightweightCharts.createChart(container, {{
-                    width: container.clientWidth || 600,
+                    width: chartWidth,
                     height: 210,
                     layout: {{ background: {{ color: '#090d16' }}, textColor: '#f8fafc' }},
                     grid: {{ vertLines: {{ color: '#1e293b' }}, horzLines: {{ color: '#1e293b' }} }},
@@ -222,6 +225,14 @@ def dashboard(request: Request):
                     candleSeries.setData(realApiCandles);
                     chart.timeScale().fitContent();
                 }}
+
+                // Force resize after layout settles
+                setTimeout(() => {{
+                    if (container.clientWidth > 0) {{
+                        chart.resize(container.clientWidth, 210);
+                        chart.timeScale().fitContent();
+                    }}
+                }}, 200);
 
                 window.addEventListener('resize', () => {{
                     if (container.clientWidth > 0) {{
@@ -263,7 +274,6 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
         return HTMLResponse("<script>window.location='/';</script>")
     
     try:
-        # Use the exact active authenticated session object directly
         obj = smart_session["obj"]
         
         token = STOCK_TOKENS.get(chart_symbol, "2885")
@@ -370,7 +380,7 @@ def fetch_real_ltp_rest():
                             pos = active_positions[symbol_name]
                             if float_ltp > pos["high_price"]:
                                 pos["high_price"] = float_ltp
-                                pos["sl_price"] = float_ltp - tsl_gap_val
+                                pos["sl_profile"] = float_ltp - tsl_gap_val
                                 add_log(f"📈 Trailing SL updated for {symbol_name} to ₹{pos['sl_price']}")
                             
                             if float_ltp <= pos["sl_price"]:
