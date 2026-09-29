@@ -88,7 +88,7 @@ def dashboard(request: Request):
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Terminal Pro (Auto-Retry Ultimate Edition)</h2>
+        <h2>🚀 Cloud Trading Terminal Pro (Sorted Data Master Edition)</h2>
         
         <div class="grid-container">
             <!-- LEFT COLUMN -->
@@ -293,7 +293,6 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
         add_log(f"🔄 Fetching real candles for {chart_symbol} (Token: {token})...")
         
         response = None
-        # Automatic Retry mechanism for rate limit bypass
         for attempt in range(3):
             time.sleep(1.0)
             response = obj.getCandleData(historicParam)
@@ -320,7 +319,11 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
                     "low": float(candle[3]),
                     "close": float(candle[4])
                 })
-            add_log(f"📊 Success! Loaded {len(formatted_candles)} real candles for {chart_symbol}.")
+            
+            # Sort candles in ascending order so Lightweight Charts renders them correctly
+            formatted_candles.sort(key=lambda x: x["time"])
+            
+            add_log(f"📊 Success! Loaded & Sorted {len(formatted_candles)} real candles for {chart_symbol}.")
         else:
             msg = response.get('message', 'Unknown') if response else 'No response'
             add_log(f"⚠️ History fetch message: {msg}")
