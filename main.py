@@ -88,7 +88,7 @@ def dashboard(request: Request):
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Terminal Pro (Aar-Paar Ultimate Edition)</h2>
+        <h2>🚀 Cloud Trading Terminal Pro (Console Debug Edition)</h2>
         
         <div class="grid-container">
             <!-- LEFT COLUMN -->
@@ -219,6 +219,8 @@ def dashboard(request: Request):
                 }});
 
                 const realApiCandles = {candles_json};
+                console.log("Injected Candles Data:", realApiCandles);
+
                 if (realApiCandles && realApiCandles.length > 0) {{
                     candleSeries.setData(realApiCandles);
                     chart.timeScale().fitContent();
@@ -229,7 +231,7 @@ def dashboard(request: Request):
                         chart.resize(container.clientWidth, 210);
                         chart.timeScale().fitContent();
                     }}
-                }}, 200);
+                }}, 300);
 
                 window.addEventListener('resize', () => {{
                     if (container.clientWidth > 0) {{
@@ -293,9 +295,8 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
         add_log(f"🔄 Fetching real candles for {chart_symbol} (Token: {token})...")
         
         response = None
-        # Exponential backoff retry loop to cleanly bypass rate limits
         for attempt in range(4):
-            sleep_time = (attempt + 1) * 2.0  # 2s, 4s, 6s delay
+            sleep_time = (attempt + 1) * 2.0
             time.sleep(sleep_time)
             response = obj.getCandleData(historicParam)
             if response and response.get('status'):
