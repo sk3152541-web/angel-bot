@@ -88,7 +88,7 @@ def dashboard(request: Request):
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Terminal Pro (Pro Performance Edition)</h2>
+        <h2>🚀 Cloud Trading Terminal Pro (Debug Logging Edition)</h2>
         
         <div class="grid-container">
             <!-- LEFT COLUMN -->
@@ -260,7 +260,7 @@ def login_route(api_key: str = Form(...), client_id: str = Form(...), password: 
 def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...), chart_tf: str = Form(...)):
     global smart_session, latest_candles
     if not smart_session:
-        add_log("⚠️ Cannot fetch real history: SmartAPI not connected! Please login first.")
+        add_log("⚠️ Cannot fetch history: SmartAPI session missing! Please reconnect feed.")
         return HTMLResponse("<script>window.location='/';</script>")
     
     try:
@@ -282,6 +282,7 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
             "todate": to_date
         }
 
+        add_log(f"🔄 Requesting candles for {chart_symbol} (Token: {token}) from {from_date}...")
         response = obj.getCandleData(historicParam)
         formatted_candles = []
         
@@ -298,15 +299,15 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
                     "low": float(candle[3]),
                     "close": float(candle[4])
                 })
-            add_log(f"📊 Successfully fetched real historical candles for {chart_symbol} from Angel One!")
+            add_log(f"📊 Success! Fetched {len(formatted_candles)} real candles for {chart_symbol}.")
         else:
-            msg = response.get('message', 'No data') if response else 'No response'
-            add_log(f"⚠️ Failed to fetch broker history for {chart_symbol}: {msg}")
+            msg = response.get('message', 'Unknown error') if response else 'No response from broker'
+            add_log(f"⚠️ Broker rejected history request: {msg}")
             formatted_candles = []
 
         latest_candles = formatted_candles
     except Exception as e:
-        add_log(f"❌ Chart Error: {str(e)}")
+        add_log(f"❌ Chart Fetch Exception: {str(e)}")
         latest_candles = []
 
     return HTMLResponse("<script>window.location='/';</script>")
