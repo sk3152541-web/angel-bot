@@ -88,7 +88,7 @@ def dashboard(request: Request):
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Terminal Pro (Sorted Data Master Edition)</h2>
+        <h2>🚀 Cloud Trading Terminal Pro (Aar-Paar Ultimate Edition)</h2>
         
         <div class="grid-container">
             <!-- LEFT COLUMN -->
@@ -293,17 +293,16 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
         add_log(f"🔄 Fetching real candles for {chart_symbol} (Token: {token})...")
         
         response = None
-        for attempt in range(3):
-            time.sleep(1.0)
+        # Exponential backoff retry loop to cleanly bypass rate limits
+        for attempt in range(4):
+            sleep_time = (attempt + 1) * 2.0  # 2s, 4s, 6s delay
+            time.sleep(sleep_time)
             response = obj.getCandleData(historicParam)
             if response and response.get('status'):
                 break
             else:
                 msg = response.get('message', '') if response else ''
-                if 'rate' in msg.lower() or 'access denied' in msg.lower():
-                    add_log(f"⚠️ Rate limited, auto-retrying attempt {attempt+1}...")
-                    continue
-                break
+                add_log(f"⚠️ Attempt {attempt+1} rate-limited/failed: {msg}. Retrying...")
 
         formatted_candles = []
         if response and response.get('status') and 'data' in response:
@@ -320,13 +319,11 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
                     "close": float(candle[4])
                 })
             
-            # Sort candles in ascending order so Lightweight Charts renders them correctly
             formatted_candles.sort(key=lambda x: x["time"])
-            
             add_log(f"📊 Success! Loaded & Sorted {len(formatted_candles)} real candles for {chart_symbol}.")
         else:
             msg = response.get('message', 'Unknown') if response else 'No response'
-            add_log(f"⚠️ History fetch message: {msg}")
+            add_log(f"❌ History fetch failed after retries: {msg}")
             formatted_candles = []
 
         latest_candles = formatted_candles
