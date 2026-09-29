@@ -37,7 +37,7 @@ tsl_gap_val = 5.0
 qty_val = 1
 selected_timeframe = "5"
 selected_date = "2026-09-28"
-latest_candles = []
+cached_candles = []
 current_chart_symbol = "RELIANCE-EQ"
 
 def add_log(msg):
@@ -86,10 +86,9 @@ def dashboard(request: Request):
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Terminal Pro (Dedicated Chart Window Edition)</h2>
+        <h2>🚀 Cloud Trading Terminal Pro (Direct Session Edition)</h2>
         
         <div class="grid-container">
-            <!-- LEFT COLUMN -->
             <div>
                 <div class="card">
                     <p style="margin:0 0 5px 0; font-size:13px;">Status: <span class="status">{'Connected & Live' if smart_session else 'Disconnected'}</span></p>
@@ -155,7 +154,6 @@ def dashboard(request: Request):
                 </div>
             </div>
 
-            <!-- RIGHT COLUMN -->
             <div>
                 <div class="card">
                     <h3>Live Market Watchlist</h3>
@@ -203,8 +201,8 @@ def dashboard(request: Request):
 
 @app.get("/chart-view", response_class=HTMLResponse)
 def chart_view():
-    global latest_candles, current_chart_symbol
-    candles_json = json.dumps(latest_candles)
+    global cached_candles, current_chart_symbol
+    candles_json = json.dumps(cached_candles)
     
     html = f"""
     <!DOCTYPE html>
@@ -216,20 +214,20 @@ def chart_view():
         <style>
             body {{ background-color: #090d16; color: #f8fafc; font-family: Arial, sans-serif; margin: 0; padding: 15px; }}
             h2 {{ color: #38bdf8; text-align: center; margin-bottom: 15px; }}
-            #chart-box {{ width: 100vw; height: 85vh; position: relative; box-sizing: border-box; }}
+            #chart-box {{ width: 100vw; height: 80vh; position: relative; box-sizing: border-box; }}
             .back-btn {{ background: #475569; color: #fff; padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; text-decoration: none; display: inline-block; margin-bottom: 10px; }}
         </style>
     </head>
     <body>
         <a href="/" class="back-btn">⬅ Back to Dashboard</a>
-        <h2>📈 Live Broker Chart: {current_chart_symbol}</h2>
+        <h2>📈 Live Broker Chart: {current_chart_symbol} (Total Candles: {len(cached_candles)})</h2>
         <div id="chart-box"></div>
 
         <script>
             const container = document.getElementById('chart-box');
             const chart = LightweightCharts.createChart(container, {{
-                width: container.clientWidth,
-                height: container.clientHeight,
+                width: container.clientWidth || window.innerWidth - 40,
+                height: container.clientHeight || 500,
                 layout: {{ background: {{ color: '#090d16' }}, textColor: '#f8fafc' }},
                 grid: {{ vertLines: {{ color: '#1e293b' }}, horzLines: {{ color: '#1e293b' }} }},
                 timeScale: {{ timeVisible: true, secondsVisible: false }}
@@ -241,9 +239,13 @@ def chart_view():
             }});
 
             const chartData = {candles_json};
+            console.log("Rendering Chart Data:", chartData);
+
             if (chartData && chartData.length > 0) {{
                 candleSeries.setData(chartData);
                 chart.timeScale().fitContent();
+            }} else {{
+                alert("Warning: No candles found to display!");
             }}
 
             window.addEventListener('resize', () => {{
@@ -277,7 +279,7 @@ def login_route(api_key: str = Form(...), client_id: str = Form(...), password: 
 
 @app.post("/fetch_chart")
 def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...), chart_tf: str = Form(...)):
-    global smart_session, latest_candles, current_chart_symbol
+    global smart_session, cached_candles, current_chart_symbol
     current_chart_symbol = chart_symbol
     
     if not smart_session or not smart_session.get("obj"):
@@ -329,16 +331,15 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
                 })
             
             formatted_candles.sort(key=lambda x: x["time"])
-            latest_candles = formatted_candles
+            cached_candles = formatted_candles
             add_log(f"📊 Success! Loaded {len(formatted_candles)} candles for {chart_symbol}.")
         else:
-            latest_candles = []
+            cached_candles = []
             add_log(f"❌ Failed to fetch candles for {chart_symbol}.")
     except Exception as e:
         add_log(f"❌ Chart Error: {str(e)}")
-        latest_candles = []
+        cached_candles = []
 
-    # Automatically redirect user directly to the dedicated full-screen chart window!
     return HTMLResponse("<script>window.location='/chart-view';</script>")
 
 @app.post("/add_stock")
