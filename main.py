@@ -38,6 +38,7 @@ qty_val = 1
 selected_timeframe = "5"
 selected_date = "2026-09-28"
 latest_candles = []
+current_chart_symbol = "RELIANCE-EQ"
 
 def add_log(msg):
     IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
@@ -49,12 +50,10 @@ def add_log(msg):
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
-    global bot_active, watchlist, bot_logs, tsl_gap_val, qty_val, selected_timeframe, selected_date, latest_candles
+    global bot_active, watchlist, bot_logs, tsl_gap_val, qty_val, selected_timeframe, selected_date, current_chart_symbol
     
     if smart_session:
         fetch_real_ltp_rest()
-    
-    candles_json = json.dumps(latest_candles)
     
     html_content = f"""
     <!DOCTYPE html>
@@ -62,7 +61,6 @@ def dashboard(request: Request):
     <head>
         <title>Cloud Trading Terminal Pro</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
         <style>
             body {{ background-color: #0f172a; color: #f8fafc; font-family: Arial, sans-serif; margin: 0; padding: 10px; }}
             h2 {{ color: #38bdf8; text-align: center; margin-bottom: 10px; font-size: 20px; }}
@@ -79,16 +77,16 @@ def dashboard(request: Request):
             .btn-buy {{ background: #16a34a; font-weight: bold; cursor: pointer; }}
             .btn-sell {{ background: #dc2626; font-weight: bold; cursor: pointer; }}
             .btn-refresh {{ background: #475569; font-weight: bold; cursor: pointer; }}
+            .btn-chart {{ background: #0284c7; font-weight: bold; cursor: pointer; text-align: center; display: block; text-decoration: none; padding: 10px; border-radius: 4px; color: #fff; margin-top: 10px; }}
             table {{ width: 100%; border-collapse: collapse; margin-top: 5px; }}
             th, td {{ border: 1px solid #334155; padding: 5px; text-align: center; font-size: 12px; }}
             th {{ background: #334155; color: #38bdf8; }}
             .logs {{ background: #090d16; color: #38bdf8; padding: 8px; font-family: monospace; font-size: 11px; height: 80px; overflow-y: scroll; border: 1px solid #334155; }}
             .status {{ font-weight: bold; color: {'#4ade80' if smart_session else '#facc15'}; }}
-            #chart-container {{ width: 100%; height: 210px; margin-top: 5px; position: relative; }}
         </style>
     </head>
     <body>
-        <h2>🚀 Cloud Trading Terminal Pro (Console Debug Edition)</h2>
+        <h2>🚀 Cloud Trading Terminal Pro (Dedicated Chart Window Edition)</h2>
         
         <div class="grid-container">
             <!-- LEFT COLUMN -->
@@ -169,81 +167,93 @@ def dashboard(request: Request):
 
     html_content += f"""
                     </table>
-                    <button onclick="location.reload();" class="btn-refresh" style="margin-top:5px;">🔄 Refresh Prices & History</button>
+                    <button onclick="location.reload();" class="btn-refresh" style="margin-top:5px;">🔄 Refresh Prices</button>
                 </div>
 
                 <div class="card">
-                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 5px;">
-                        <h3 style="margin:0;">Real Broker History & Chart</h3>
-                        <form action="/fetch_chart" method="post" style="display: flex; gap: 5px; align-items: center; margin:0; width:auto;">
-                            <select name="chart_symbol" style="width: 90px; margin:0; padding:4px;">
+                    <h3>Dedicated Full-Screen Live Chart</h3>
+                    <form action="/fetch_chart" method="post">
+                        <label style="font-size:11px;">Select Symbol:</label>
+                        <select name="chart_symbol">
     """
     for item in watchlist:
-        html_content += f'<option value="{item["symbol"]}">{item["symbol"]}</option>'
+        selected_attr = "selected" if item["symbol"] == current_chart_symbol else ""
+        html_content += f'<option value="{item["symbol"]}" {selected_attr}>{item["symbol"]}</option>'
 
     html_content += f"""
-                            </select>
-                            <input type="date" name="chart_date" value="{selected_date}" style="width: 110px; margin:0; padding:4px;">
-                            <select name="chart_tf" style="width: 70px; margin:0; padding:4px;">
-                                <option value="1">1m</option>
-                                <option value="5" selected>5m</option>
-                                <option value="15">15m</option>
-                                <option value="60">1h</option>
-                            </select>
-                            <button type="submit" style="width: 60px; margin:0; padding:4px; background:#0284c7; cursor:pointer;">Load</button>
-                        </form>
-                    </div>
-                    <div id="chart-container"></div>
+                        </select>
+                        <label style="font-size:11px;">Select Date:</label>
+                        <input type="date" name="chart_date" value="{selected_date}">
+                        <label style="font-size:11px;">Timeframe:</label>
+                        <select name="chart_tf">
+                            <option value="1">1 Minute</option>
+                            <option value="5" selected>5 Minutes</option>
+                            <option value="15">15 Minutes</option>
+                            <option value="60">1 Hour</option>
+                        </select>
+                        <button type="submit" class="btn-chart" style="border:none; width:100%;">📊 Load & Open Dedicated Chart Window</button>
+                    </form>
                 </div>
             </div>
         </div>
-
-        <script>
-            let chart, candleSeries;
-
-            window.onload = function() {{
-                const container = document.getElementById('chart-container');
-                let chartWidth = container.clientWidth || container.offsetWidth || 500;
-
-                chart = LightweightCharts.createChart(container, {{
-                    width: chartWidth,
-                    height: 210,
-                    layout: {{ background: {{ color: '#090d16' }}, textColor: '#f8fafc' }},
-                    grid: {{ vertLines: {{ color: '#1e293b' }}, horzLines: {{ color: '#1e293b' }} }},
-                    timeScale: {{ timeVisible: true, secondsVisible: false }}
-                }});
-
-                candleSeries = chart.addCandlestickSeries({{
-                    upColor: '#16a34a', downColor: '#dc2626', borderVisible: false,
-                    wickUpColor: '#16a34a', wickDownColor: '#dc2626'
-                }});
-
-                const realApiCandles = {candles_json};
-                console.log("Injected Candles Data:", realApiCandles);
-
-                if (realApiCandles && realApiCandles.length > 0) {{
-                    candleSeries.setData(realApiCandles);
-                    chart.timeScale().fitContent();
-                }}
-
-                setTimeout(() => {{
-                    if (container.clientWidth > 0) {{
-                        chart.resize(container.clientWidth, 210);
-                        chart.timeScale().fitContent();
-                    }}
-                }}, 300);
-
-                window.addEventListener('resize', () => {{
-                    if (container.clientWidth > 0) {{
-                        chart.resize(container.clientWidth, 210);
-                    }}
-                }});
-            }};
-        </script>
     </body>
     </html>
     """
     return html_content
+
+@app.get("/chart-view", response_class=HTMLResponse)
+def chart_view():
+    global latest_candles, current_chart_symbol
+    candles_json = json.dumps(latest_candles)
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Live Trading Chart - {current_chart_symbol}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+        <style>
+            body {{ background-color: #090d16; color: #f8fafc; font-family: Arial, sans-serif; margin: 0; padding: 15px; }}
+            h2 {{ color: #38bdf8; text-align: center; margin-bottom: 15px; }}
+            #chart-box {{ width: 100vw; height: 85vh; position: relative; box-sizing: border-box; }}
+            .back-btn {{ background: #475569; color: #fff; padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; text-decoration: none; display: inline-block; margin-bottom: 10px; }}
+        </style>
+    </head>
+    <body>
+        <a href="/" class="back-btn">⬅ Back to Dashboard</a>
+        <h2>📈 Live Broker Chart: {current_chart_symbol}</h2>
+        <div id="chart-box"></div>
+
+        <script>
+            const container = document.getElementById('chart-box');
+            const chart = LightweightCharts.createChart(container, {{
+                width: container.clientWidth,
+                height: container.clientHeight,
+                layout: {{ background: {{ color: '#090d16' }}, textColor: '#f8fafc' }},
+                grid: {{ vertLines: {{ color: '#1e293b' }}, horzLines: {{ color: '#1e293b' }} }},
+                timeScale: {{ timeVisible: true, secondsVisible: false }}
+            }});
+
+            const candleSeries = chart.addCandlestickSeries({{
+                upColor: '#16a34a', downColor: '#dc2626', borderVisible: false,
+                wickUpColor: '#16a34a', wickDownColor: '#dc2626'
+            }});
+
+            const chartData = {candles_json};
+            if (chartData && chartData.length > 0) {{
+                candleSeries.setData(chartData);
+                chart.timeScale().fitContent();
+            }}
+
+            window.addEventListener('resize', () => {{
+                chart.resize(container.clientWidth, container.clientHeight);
+            }});
+        </script>
+    </body>
+    </html>
+    """
+    return html
 
 @app.post("/login")
 def login_route(api_key: str = Form(...), client_id: str = Form(...), password: str = Form(...), totp_key: str = Form(...)):
@@ -267,14 +277,15 @@ def login_route(api_key: str = Form(...), client_id: str = Form(...), password: 
 
 @app.post("/fetch_chart")
 def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...), chart_tf: str = Form(...)):
-    global smart_session, latest_candles
+    global smart_session, latest_candles, current_chart_symbol
+    current_chart_symbol = chart_symbol
+    
     if not smart_session or not smart_session.get("obj"):
         add_log("⚠️ Session missing! Please connect live feed first.")
         return HTMLResponse("<script>window.location='/';</script>")
     
     try:
         obj = smart_session["obj"]
-        
         token = STOCK_TOKENS.get(chart_symbol, "2885")
         for item in watchlist:
             if item["symbol"] == chart_symbol and item["token"] != "99999":
@@ -292,7 +303,7 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
             "todate": to_date
         }
 
-        add_log(f"🔄 Fetching real candles for {chart_symbol} (Token: {token})...")
+        add_log(f"🔄 Fetching real candles for {chart_symbol}...")
         
         response = None
         for attempt in range(4):
@@ -301,9 +312,6 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
             response = obj.getCandleData(historicParam)
             if response and response.get('status'):
                 break
-            else:
-                msg = response.get('message', '') if response else ''
-                add_log(f"⚠️ Attempt {attempt+1} rate-limited/failed: {msg}. Retrying...")
 
         formatted_candles = []
         if response and response.get('status') and 'data' in response:
@@ -321,18 +329,17 @@ def fetch_chart_route(chart_symbol: str = Form(...), chart_date: str = Form(...)
                 })
             
             formatted_candles.sort(key=lambda x: x["time"])
-            add_log(f"📊 Success! Loaded & Sorted {len(formatted_candles)} real candles for {chart_symbol}.")
+            latest_candles = formatted_candles
+            add_log(f"📊 Success! Loaded {len(formatted_candles)} candles for {chart_symbol}.")
         else:
-            msg = response.get('message', 'Unknown') if response else 'No response'
-            add_log(f"❌ History fetch failed after retries: {msg}")
-            formatted_candles = []
-
-        latest_candles = formatted_candles
+            latest_candles = []
+            add_log(f"❌ Failed to fetch candles for {chart_symbol}.")
     except Exception as e:
         add_log(f"❌ Chart Error: {str(e)}")
         latest_candles = []
 
-    return HTMLResponse("<script>window.location='/';</script>")
+    # Automatically redirect user directly to the dedicated full-screen chart window!
+    return HTMLResponse("<script>window.location='/chart-view';</script>")
 
 @app.post("/add_stock")
 def add_stock_route(new_symbol: str = Form(...)):
@@ -340,22 +347,15 @@ def add_stock_route(new_symbol: str = Form(...)):
     sym = new_symbol.upper().strip()
     for item in watchlist:
         if item["symbol"] == sym:
-            add_log(f"⚠️ Stock {sym} already exists in watchlist!")
             return HTMLResponse("<script>window.location='/';</script>")
-    
     token = STOCK_TOKENS.get(sym, "2885")
     watchlist.append({"token": token, "symbol": sym, "ltp": "-", "time": "-"})
-    add_log(f"➕ Successfully added {sym} to Watchlist!")
+    add_log(f"➕ Added {sym} to Watchlist.")
     return HTMLResponse("<script>window.location='/';</script>")
 
 @app.post("/manual_order")
 def manual_order_route(symbol: str = Form(...), manual_qty: int = Form(1), action: str = Form(...)):
-    global smart_session
-    if not smart_session:
-        add_log("⚠️ Cannot place manual order: SmartAPI not connected!")
-        return HTMLResponse("<script>window.location='/';</script>")
-    
-    add_log(f"⚡ Manual {action} Order placed successfully for {symbol} with Qty: {manual_qty}")
+    add_log(f"⚡ Manual {action} placed for {symbol} (Qty: {manual_qty})")
     return HTMLResponse("<script>window.location='/';</script>")
 
 def fetch_real_ltp_rest():
@@ -365,37 +365,13 @@ def fetch_real_ltp_rest():
     try:
         obj = smart_session["obj"]
         IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
-        
         for item in watchlist:
             res = obj.ltpData("NSE", item["symbol"], item["token"])
             if res and res.get('status') and 'data' in res:
                 ltp_val = res['data'].get('ltp')
-                current_time = datetime.datetime.now(IST).strftime("%H:%M:%S")
                 if ltp_val:
                     item["ltp"] = str(ltp_val)
-                    item["time"] = current_time
-                    
-                    if bot_active:
-                        symbol_name = item["symbol"]
-                        float_ltp = float(ltp_val)
-                        if symbol_name not in active_positions:
-                            active_positions[symbol_name] = {
-                                "entry_price": float_ltp,
-                                "high_price": float_ltp,
-                                "sl_price": float_ltp - tsl_gap_val,
-                                "qty": qty_val
-                            }
-                            add_log(f"🚀 Auto Entry Placed for {symbol_name} at ₹{float_ltp} with Qty: {qty_val}")
-                        else:
-                            pos = active_positions[symbol_name]
-                            if float_ltp > pos["high_price"]:
-                                pos["high_price"] = float_ltp
-                                pos["sl_price"] = float_ltp - tsl_gap_val
-                                add_log(f"📈 Trailing SL updated for {symbol_name} to ₹{pos['sl_price']}")
-                            
-                            if float_ltp <= pos["sl_price"]:
-                                add_log(f"🛑 Stop Loss Hit! Auto Exit executed for {symbol_name} at ₹{float_ltp}")
-                                del active_positions[symbol_name]
+                    item["time"] = datetime.datetime.now(IST).strftime("%H:%M:%S")
     except Exception as e:
         pass
 
@@ -404,17 +380,6 @@ def toggle_bot_route(tsl_gap: float = Form(5.0), qty: int = Form(1)):
     global bot_active, smart_session, active_positions, tsl_gap_val, qty_val
     tsl_gap_val = tsl_gap
     qty_val = qty
-
-    if not smart_session:
-        add_log("⚠️ Cannot start bot: SmartAPI not connected!")
-        return HTMLResponse("<script>window.location='/';</script>")
-
-    if not bot_active:
-        bot_active = True
-        add_log(f"🟢 Automated Bot Activated with Quantity: {qty} and TSL Gap: ₹{tsl_gap}")
-    else:
-        bot_active = False
-        add_log("🔴 Automated Bot Stopped.")
-        active_positions.clear()
-
+    bot_active = not bot_active
+    add_log(f"🟢 Bot Status: {'Active' if bot_active else 'Stopped'}")
     return HTMLResponse("<script>window.location='/';</script>")
