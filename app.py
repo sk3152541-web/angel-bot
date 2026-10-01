@@ -5,6 +5,7 @@ import asyncio
 import json
 import pyotp
 import requests
+import os
 from datetime import datetime, timedelta
 from SmartApi import SmartConnect
 from SmartApi.smartWebSocketV2 import SmartWebSocketV2
@@ -477,7 +478,7 @@ HTML_CONTENT = """
             });
         }
 
-        const ws = new WebSocket("ws://" + window.location.host + "/ws");
+        const ws = new WebSocket("wss://" + window.location.host + "/ws");
         ws.onmessage = function(event) {
             const data = JSON.parse(event.data);
             const token = data.token;
@@ -775,4 +776,5 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("app:app", host="0.0.0.0", port=port)
