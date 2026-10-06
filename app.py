@@ -35,7 +35,7 @@ HTML_CONTENT = """
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Angel One Pro Terminal - Two-Way Bot</title>
+    <title>Angel One Pro Terminal - Full Watchlist Live</title>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -238,7 +238,7 @@ HTML_CONTENT = """
             <div id="tab-logs" class="tab-content">
                 <div class="control-panel">
                     <div class="control-group" id="logsContainer" style="width: 100%; font-family: monospace; font-size: 11px; color: #38bdf8; height: 400px; overflow-y: auto;">
-                        [System] Terminal running with Two-Way Autonomous Bot Engine. Waiting for broker connection...
+                        [System] Terminal running with Full Watchlist Live Polling Engine. Waiting for broker connection...
                     </div>
                 </div>
             </div>
@@ -368,14 +368,13 @@ HTML_CONTENT = """
             const maxPrice = (maxVal !== "") ? parseFloat(maxVal) : Infinity;
 
             const filtered = masterStocks.filter(s => {
-                const p = s.price || 100.0;
+                const p = stockPrices[s.symbol] || s.price || 100.0;
                 const matchesSearch = s.symbol.toLowerCase().includes(query) || s.name.toLowerCase().includes(query);
                 const matchesPrice = p >= minPrice && p <= maxPrice;
                 return matchesSearch && matchesPrice;
             });
 
             watchlist = filtered;
-            updateStockMaps();
             renderWatchlistUI(watchlist);
         }
 
@@ -384,7 +383,6 @@ HTML_CONTENT = """
             document.getElementById("minPriceInput").value = "";
             document.getElementById("maxPriceInput").value = "";
             watchlist = [...masterStocks];
-            updateStockMaps();
             renderWatchlistUI(watchlist);
             showToast("Watchlist reset!");
         }
@@ -406,6 +404,7 @@ HTML_CONTENT = """
                     selectedSymbol = s.symbol;
                     document.getElementById("activeSymbolTitle").innerText = selectedSymbol;
                     document.getElementById("barSymbol").innerText = selectedSymbol;
+                    renderWatchlistUI(watchlist);
                     loadHistoricalData();
                 };
                 item.innerHTML = `
@@ -431,7 +430,6 @@ HTML_CONTENT = """
                 return;
             }
             watchlist = watchlist.filter(s => s.symbol !== sym);
-            updateStockMaps();
             renderWatchlistUI(watchlist);
             showToast(`Removed ${sym}`);
         }
@@ -469,7 +467,7 @@ HTML_CONTENT = """
         }
 
         function loadHistoricalData(isMore = false, beforeTimestamp = null) {
-            const token = stockMap[selectedSymbol] || "2885";
+            const token = stockMap[selectedSymbol] || stockMap[masterStocks[0].symbol] || "2885";
             const exch = stockExchanges[selectedSymbol] || "NSE";
             const tf = document.getElementById("timeframeSelect").value;
             document.getElementById("barTf").innerText = tf;
@@ -645,13 +643,16 @@ HTML_CONTENT = """
             });
         }
 
+        // FULL WATCHLIST LIVE POLLING ENGINE
         function startPolling() {
             setInterval(() => {
                 if (!isConnected) return;
-                const token = stockMap[selectedSymbol] || "2885";
-                const exch = stockExchanges[selectedSymbol] || "NSE";
 
-                fetch(`/ltp?exchange=${exch}&symbol=${selectedSymbol}&token=${token}`)
+                // 1. Poll Selected Symbol for Chart, OHLC & Active Trade
+                const selToken = stockMap[selectedSymbol] || "2885";
+                const selExch = stockExchanges[selectedSymbol] || "NSE";
+
+                fetch(`/ltp?exchange=${selExch}&symbol=${selectedSymbol}&token=${selToken}`)
                     .then(res => res.json())
                     .then(data => {
                         if (data && data.status === "success") {
@@ -699,7 +700,6 @@ HTML_CONTENT = """
                             // TWO-WAY AUTONOMOUS BOT TRIGGER (BUY & SELL)
                             if (botRunning && sym === selectedSymbol) {
                                 if (Math.random() < 0.03) {
-                                    // Decide transaction type based on price movement direction
                                     const txType = newPrice >= oldPrice ? 'BUY' : 'SELL';
                                     const qty = document.getElementById("botQty").value;
                                     const product = document.getElementById("botProduct").value;
@@ -709,7 +709,7 @@ HTML_CONTENT = """
                                     fetch('/order', {
                                         method: 'POST',
                                         headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ symbol: selectedSymbol, token: token, exchange: exch, transactionType: txType, quantity: parseInt(qty), productType: product, price: newPrice, stopLoss: parseFloat(sl), trailingSl: parseFloat(tsl) })
+                                        body: JSON.stringify({ symbol: selectedSymbol, token: selToken, exchange: selExch, transactionType: txType, quantity: parseInt(qty), productType: product, price: newPrice, stopLoss: parseFloat(sl), trailingSl: parseFloat(tsl) })
                                     }).then(r => r.json()).then(resp => {
                                         if(resp.status === "success") {
                                             activeTrade = { symbol: selectedSymbol, entryPrice: newPrice, qty: parseInt(qty), type: txType };
@@ -721,6 +721,25 @@ HTML_CONTENT = """
                             }
                         }
                     }).catch(err => {});
+
+                // 2. Poll All Other Watchlist Items so their prices update live too
+                watchlist.forEach(s => {
+                    if (s.symbol === selectedSymbol) return; // already fetched above
+                    fetch(`/ltp?exchange=${s.exchange || 'NSE'}&symbol=${s.symbol}&token=${s.token}`)
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data && data.status === "success" && data.price > 0) {
+                                const oldP = stockPrices[s.symbol] || s.price;
+                                stockPrices[s.symbol] = data.price;
+                                const wlEl = document.getElementById("wl_" + s.symbol);
+                                if (wlEl) {
+                                    wlEl.innerText = "₹" + data.price.toFixed(2);
+                                    wlEl.className = data.price > oldP ? "flash-up" : (data.price < oldP ? "flash-down" : "");
+                                }
+                            }
+                        }).catch(err => {});
+                });
+
             }, 2000);
         }
 
@@ -819,7 +838,7 @@ def get_live_ltp(exchange: str, symbol: str, token: str):
 
 @app.post("/order")
 async def place_live_order(data: dict):
-    global smart_api_obj, active_positions
+    global smart_api_obj
     try:
         if not smart_api_obj:
             return {"status": "error", "message": "Broker not connected!"}
