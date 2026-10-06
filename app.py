@@ -35,7 +35,7 @@ HTML_CONTENT = """
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Angel One Pro Terminal - Persistent Storage</title>
+    <title>Angel One Pro Terminal - Two-Way Bot</title>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -207,7 +207,7 @@ HTML_CONTENT = """
             <div id="tab-bot" class="tab-content">
                 <div class="control-panel">
                     <div class="control-group">
-                        <h3 style="margin-top: 0; color: #38bdf8; font-size: 14px;">Fully Autonomous Bot Settings</h3>
+                        <h3 style="margin-top: 0; color: #38bdf8; font-size: 14px;">Fully Autonomous Bot Settings (Two-Way: BUY & SELL)</h3>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
                             <div>
                                 <label style="font-size: 11px; color: #94a3b8;">Autonomous Quantity</label>
@@ -227,7 +227,7 @@ HTML_CONTENT = """
                             </div>
                         </div>
                         <div style="margin-top: 20px;">
-                            <button id="botToggleBtn" class="btn" style="background-color: #089981; color: white; padding: 10px 20px;" onclick="toggleBot()">Start Fully Autonomous Bot</button>
+                            <button id="botToggleBtn" class="btn" style="background-color: #089981; color: white; padding: 10px 20px;" onclick="toggleBot()">Start Two-Way Autonomous Bot</button>
                             <span id="botStatus" style="margin-left: 15px; font-size: 12px; color: #f23645;">● Bot Status: Stopped</span>
                         </div>
                     </div>
@@ -238,7 +238,7 @@ HTML_CONTENT = """
             <div id="tab-logs" class="tab-content">
                 <div class="control-panel">
                     <div class="control-group" id="logsContainer" style="width: 100%; font-family: monospace; font-size: 11px; color: #38bdf8; height: 400px; overflow-y: auto;">
-                        [System] Terminal running with Persistent Local Storage Engine. Waiting for broker connection...
+                        [System] Terminal running with Two-Way Autonomous Bot Engine. Waiting for broker connection...
                     </div>
                 </div>
             </div>
@@ -602,18 +602,18 @@ HTML_CONTENT = """
             const btn = document.getElementById("botToggleBtn");
             const status = document.getElementById("botStatus");
             if(botRunning) {
-                btn.innerText = "Stop Fully Autonomous Bot";
+                btn.innerText = "Stop Two-Way Autonomous Bot";
                 btn.style.backgroundColor = "#f23645";
-                status.innerText = "● Bot Status: Fully Autonomous & Active";
+                status.innerText = "● Bot Status: Two-Way Active (BUY & SELL)";
                 status.style.color = "#089981";
-                addLog("Fully Autonomous Bot started.");
-                showToast("Autonomous Bot Started Successfully!");
+                addLog("Two-Way Autonomous Bot started (Monitoring for BUY & SELL triggers).");
+                showToast("Two-Way Autonomous Bot Started!");
             } else {
-                btn.innerText = "Start Fully Autonomous Bot";
+                btn.innerText = "Start Two-Way Autonomous Bot";
                 btn.style.backgroundColor = "#089981";
                 status.innerText = "● Bot Status: Stopped";
                 status.style.color = "#f23645";
-                addLog("Fully Autonomous Bot stopped.");
+                addLog("Two-Way Autonomous Bot stopped.");
                 showToast("Autonomous Bot Stopped!");
             }
         }
@@ -696,8 +696,11 @@ HTML_CONTENT = """
                                 chart.resize(chartEl.clientWidth, 485);
                             }
 
+                            // TWO-WAY AUTONOMOUS BOT TRIGGER (BUY & SELL)
                             if (botRunning && sym === selectedSymbol) {
-                                if (newPrice < oldPrice && Math.random() < 0.03) {
+                                if (Math.random() < 0.03) {
+                                    // Decide transaction type based on price movement direction
+                                    const txType = newPrice >= oldPrice ? 'BUY' : 'SELL';
                                     const qty = document.getElementById("botQty").value;
                                     const product = document.getElementById("botProduct").value;
                                     const sl = document.getElementById("botSl").value;
@@ -706,11 +709,12 @@ HTML_CONTENT = """
                                     fetch('/order', {
                                         method: 'POST',
                                         headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ symbol: selectedSymbol, token: token, exchange: exch, transactionType: 'BUY', quantity: parseInt(qty), productType: product, price: newPrice, stopLoss: parseFloat(sl), trailingSl: parseFloat(tsl) })
+                                        body: JSON.stringify({ symbol: selectedSymbol, token: token, exchange: exch, transactionType: txType, quantity: parseInt(qty), productType: product, price: newPrice, stopLoss: parseFloat(sl), trailingSl: parseFloat(tsl) })
                                     }).then(r => r.json()).then(resp => {
                                         if(resp.status === "success") {
-                                            activeTrade = { symbol: selectedSymbol, entryPrice: newPrice, qty: parseInt(qty), type: 'BUY' };
-                                            showToast(`Bot Order Executed: BUY ${selectedSymbol}`);
+                                            activeTrade = { symbol: selectedSymbol, entryPrice: newPrice, qty: parseInt(qty), type: txType };
+                                            showToast(`Bot Order Executed: ${txType} ${selectedSymbol}`);
+                                            addLog(`[Bot] Successfully placed automatic ${txType} order for ${selectedSymbol} at ₹${newPrice}`);
                                         }
                                     });
                                 }
