@@ -41,7 +41,7 @@ server_state = {
     "bot_tsl": 2.0,
     "active_trade": None,
     "prices": {s["symbol"]: s["price"] for s in MASTER_STOCKS},
-    "logs": ["[System] Server-side dynamic trailing engine initialized with Indicators."]
+    "logs": ["[System] Master Terminal engine initialized successfully."]
 }
 
 def add_server_log(msg):
@@ -52,6 +52,7 @@ def add_server_log(msg):
     if len(server_state["logs"]) > 100:
         server_state["logs"].pop(0)
 
+# BACKGROUND ASYNC TASK: 24/7 Server Polling + Dynamic Trailing Stop-Loss Management
 async def background_trading_worker():
     while True:
         await asyncio.sleep(2)
@@ -75,6 +76,7 @@ async def background_trading_worker():
                     old_price = server_state["prices"].get(sym, new_price)
                     server_state["prices"][sym] = new_price
 
+                    # ACTIVE TRADE DYNAMIC TRAILING STOP LOSS & RISK MANAGEMENT LOGIC
                     trade = server_state["active_trade"]
                     if trade and trade["symbol"] == sym:
                         if trade["type"] == "BUY":
@@ -99,6 +101,7 @@ async def background_trading_worker():
                                 add_server_log(f"[Risk Management] Stoploss hit for {sym} at ₹{new_price}. Square off triggered!")
                                 server_state["active_trade"] = None
 
+                    # Autonomous Bot Execution on Server
                     if server_state["bot_running"] and not server_state["active_trade"]:
                         if import_random_check():
                             mode = server_state["bot_mode"]
@@ -161,7 +164,7 @@ HTML_CONTENT = """
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Angel One Pro Terminal - Dynamic Trailing & Indicators</title>
+    <title>Angel One Pro Terminal - Complete Edition</title>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -443,7 +446,6 @@ HTML_CONTENT = """
             { symbol: "BANKNIFTY", token: "99926009", name: "Bank Nifty Index", price: 48250.10, chg: 0.65, exchange: "NSE" }
         ];
 
-        let masterList = [...masterStocks];
         let selectedSymbol = "ITC-EQ";
         let stockPrices = {};
         let stockTokens = {};
