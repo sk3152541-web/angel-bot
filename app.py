@@ -41,7 +41,7 @@ server_state = {
     "bot_tsl": 2.0,
     "active_trade": None,
     "prices": {s["symbol"]: s["price"] for s in MASTER_STOCKS},
-    "logs": ["[System] Server-side dynamic trailing engine initialized."]
+    "logs": ["[System] Server-side dynamic trailing engine initialized with Indicators."]
 }
 
 def add_server_log(msg):
@@ -161,7 +161,7 @@ HTML_CONTENT = """
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Angel One Pro Terminal - Dynamic Trailing Stop-Loss Bot</title>
+    <title>Angel One Pro Terminal - Dynamic Trailing & Indicators</title>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -214,7 +214,7 @@ HTML_CONTENT = """
         <div><b>▲ BANKNIFTY</b> <span style="color: #089981; margin-left: 5px;">48,250.10 (+0.65%)</span></div>
         <div style="display: flex; gap: 15px; align-items: center;">
             <div style="font-size: 11px; background: #181c25; padding: 4px 10px; border-radius: 4px; border: 1px solid #2a2e39;">Live P&L: <span id="headerPnl" style="font-weight: bold; color: #089981;">₹0.00</span></div>
-            <div style="color: #38bdf8; font-weight: bold;">⚡ Dynamic Trailing Terminal</div>
+            <div style="color: #38bdf8; font-weight: bold;">⚡ Angel One Pro Terminal</div>
         </div>
     </div>
 
@@ -248,9 +248,9 @@ HTML_CONTENT = """
             <div class="tabs">
                 <div class="tab active" onclick="switchTab('chart', this)">Chart & Analysis</div>
                 <div class="tab" onclick="switchTab('options', this)">Options Chain (CE/PE)</div>
-                <div class="tab" onclick="switchTab('trade', this)">Manual Trade & TSL</div>
-                <div class="tab" onclick="switchTab('bot', this)">24/7 Server Bot</div>
-                <div class="tab" onclick="switchTab('logs', this)">Server Logs</div>
+                <div class="tab" onclick="switchTab('trade', this)">Manual Trade & Stoploss</div>
+                <div class="tab" onclick="switchTab('bot', this)">Autonomous Bot</div>
+                <div class="tab" onclick="switchTab('logs', this)">System Logs</div>
             </div>
 
             <div id="tab-chart" class="tab-content active">
@@ -267,6 +267,16 @@ HTML_CONTENT = """
                         <option value="HeikenAshi">Heiken Ashi</option>
                     </select>
                     <button class="btn" style="background-color: #181c25; color: #38bdf8;" onclick="manualRefreshChart()">🔄 Refresh Chart</button>
+                    
+                    <div style="position: relative; display: inline-block;">
+                        <button class="btn" style="background-color: #181c25; color: #38bdf8;" onclick="toggleIndicatorMenu()">Indicators ▼</button>
+                        <div id="indicatorDropdown" style="display: none; position: absolute; background: #181c25; border: 1px solid #2a2e39; padding: 10px; z-index: 10; width: 190px; border-radius: 4px; top: 30px;">
+                            <label style="display:block; font-size:11px; margin-bottom:6px; cursor:pointer;"><input type="checkbox" value="SMA" onchange="applyIndicator(this)"> SMA (Moving Avg)</label>
+                            <label style="display:block; font-size:11px; margin-bottom:6px; cursor:pointer;"><input type="checkbox" value="BB" onchange="applyIndicator(this)"> Bollinger Bands</label>
+                            <label style="display:block; font-size:11px; margin-bottom:6px; cursor:pointer;"><input type="checkbox" value="RSI" onchange="applyIndicator(this)"> RSI (Relative Str)</label>
+                            <label style="display:block; font-size:11px; cursor:pointer;"><input type="checkbox" value="MACD" onchange="applyIndicator(this)"> MACD Oscillator</label>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="chart-ohlc-bar">
@@ -342,7 +352,7 @@ HTML_CONTENT = """
             <div id="tab-trade" class="tab-content">
                 <div class="control-panel">
                     <div class="control-group">
-                        <h3 style="margin-top: 0; color: #38bdf8; font-size: 14px;">Manual Order Execution & Dynamic TSL</h3>
+                        <h3 style="margin-top: 0; color: #38bdf8; font-size: 14px;">Manual Order Execution & Stoploss</h3>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
                             <div>
                                 <label style="font-size: 11px; color: #94a3b8;">Quantity / Lot Size</label>
@@ -406,7 +416,7 @@ HTML_CONTENT = """
             <div id="tab-logs" class="tab-content">
                 <div class="control-panel">
                     <div class="control-group" id="logsContainer" style="width: 100%; font-family: monospace; font-size: 11px; color: #38bdf8; height: 400px; overflow-y: auto;">
-                        [System] Dynamic Trailing Terminal running. Waiting for connection...
+                        [System] Terminal running. Waiting for connection...
                     </div>
                 </div>
             </div>
@@ -421,7 +431,7 @@ HTML_CONTENT = """
             { symbol: "YESBANK-EQ", token: "11915", name: "Yes Bank Ltd", price: 24.30, chg: -0.80, exchange: "NSE" },
             { symbol: "SUZLON-EQ", token: "3327", name: "Suzlon Energy Ltd", price: 48.60, chg: 2.10, exchange: "NSE" },
             { symbol: "PNB-EQ", token: "10666", name: "Punjab National Bank", price: 105.40, chg: 0.50, exchange: "NSE" },
-            { symbol: "IDFCFIRSTB-EQ",  token: "11014", name: "IDFC First Bank Ltd", price: 72.10, chg: -1.10, exchange: "NSE" },
+            { symbol: "IDFCFIRSTB-EQ", token: "11014", name: "IDFC First Bank Ltd", price: 72.10, chg: -1.10, exchange: "NSE" },
             { symbol: "HDFCBANK-EQ", token: "1333", name: "HDFC Bank Ltd", price: 1650.00, chg: 0.50, exchange: "NSE" },
             { symbol: "ITC-EQ", token: "1660", name: "ITC Limited", price: 430.20, chg: 0.4, exchange: "NSE" },
             { symbol: "WIPRO-EQ", token: "3787", name: "Wipro Limited", price: 540.00, chg: 0.4, exchange: "NSE" },
@@ -477,7 +487,7 @@ HTML_CONTENT = """
 
         document.addEventListener("DOMContentLoaded", function() {
             loadCredentials();
-            renderWatchlistUI(masterList);
+            renderWatchlistUI(masterStocks);
             initChart();
             startServerLogPolling();
         });
@@ -494,6 +504,15 @@ HTML_CONTENT = """
                         }
                     }).catch(err => {});
             }, 3000);
+        }
+
+        function toggleIndicatorMenu() {
+            const menu = document.getElementById("indicatorDropdown");
+            menu.style.display = menu.style.display === "block" ? "none" : "block";
+        }
+
+        function applyIndicator(el) {
+            showToast("Indicator " + el.value + " toggled!");
         }
 
         function loadOptionsChain() {
@@ -545,12 +564,12 @@ HTML_CONTENT = """
         function autoSelectStockByQty(qtyVal) {
             const qty = parseInt(qtyVal);
             if (isNaN(qty) || qty <= 0) return;
-            if (masterList.length > 0) {
-                const index = (qty - 1) % masterList.length;
-                selectedSymbol = masterList[index].symbol;
+            if (masterStocks.length > 0) {
+                const index = (qty - 1) % masterStocks.length;
+                selectedSymbol = masterStocks[index].symbol;
                 document.getElementById("activeSymbolTitle").innerText = selectedSymbol;
                 document.getElementById("barSymbol").innerText = selectedSymbol;
-                renderWatchlistUI(masterList);
+                renderWatchlistUI(masterStocks);
                 loadHistoricalData();
                 updateServerSelectedSymbol();
             }
@@ -588,6 +607,16 @@ HTML_CONTENT = """
             showToast("Watchlist reset!");
         }
 
+        function removeStock(event, symbol) {
+            event.stopPropagation();
+            const index = masterStocks.findIndex(s => s.symbol === symbol);
+            if (index > -1) {
+                masterStocks.splice(index, 1);
+                filterWatchlist();
+                showToast(`Removed ${symbol} from Watchlist`);
+            }
+        }
+
         function renderWatchlistUI(items) {
             const container = document.getElementById("watchlistContainer");
             if (!container) return;
@@ -603,7 +632,7 @@ HTML_CONTENT = """
                     selectedSymbol = s.symbol;
                     document.getElementById("activeSymbolTitle").innerText = selectedSymbol;
                     document.getElementById("barSymbol").innerText = selectedSymbol;
-                    renderWatchlistUI(masterStocks);
+                    renderWatchlistUI(items);
                     loadHistoricalData();
                     updateServerSelectedSymbol();
                 };
@@ -612,8 +641,11 @@ HTML_CONTENT = """
                         <div style="font-weight: bold; font-size: 12px;">${s.symbol}</div>
                         <div style="font-size: 10px; color: #94a3b8;">${s.name}</div>
                     </div>
-                    <div style="text-align: right;">
-                        <div id="wl_${s.symbol}" style="font-weight: bold; font-size: 12px;">₹${(stockPrices[s.symbol] || s.price).toFixed(2)}</div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="text-align: right;">
+                            <div id="wl_${s.symbol}" style="font-weight: bold; font-size: 12px;">₹${(stockPrices[s.symbol] || s.price).toFixed(2)}</div>
+                        </div>
+                        <span onclick="removeStock(event, '${s.symbol}')" style="color: #f23645; font-weight: bold; cursor: pointer; padding: 2px 5px;" title="Remove">✕</span>
                     </div>
                 `;
                 container.appendChild(item);
