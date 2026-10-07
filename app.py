@@ -17,6 +17,7 @@ MASTER_STOCKS = [
     {"symbol": "SUZLON-EQ", "token": "3327", "name": "Suzlon Energy Ltd", "price": 48.60, "chg": 2.10, "exchange": "NSE"},
     {"symbol": "PNB-EQ", "token": "10666", "name": "Punjab National Bank", "price": 105.40, "chg": 0.50, "exchange": "NSE"},
     {"symbol": "IDFCFIRSTB-EQ", "token": "11014", "name": "IDFC First Bank Ltd", "price": 72.10, "chg": -1.10, "exchange": "NSE"},
+    {"symbol": "HDFCBANK-EQ", "token": "1333", "name": "HDFC Bank Ltd", "price": 1650.00, "chg": 0.50, "exchange": "NSE"},
     {"symbol": "ITC-EQ", "token": "1660", "name": "ITC Limited", "price": 430.20, "chg": 0.4, "exchange": "NSE"},
     {"symbol": "WIPRO-EQ", "token": "3787", "name": "Wipro Limited", "price": 540.00, "chg": 0.4, "exchange": "NSE"},
     {"symbol": "SBIN-EQ", "token": "3045", "name": "State Bank of India", "price": 810.50, "chg": 1.1, "exchange": "NSE"},
@@ -59,7 +60,7 @@ async def background_trading_worker():
         
         try:
             sym = server_state["selected_symbol"]
-            token = "2885"
+            token = "1660"
             exch = "NSE"
             for s in MASTER_STOCKS:
                 if s["symbol"] == sym:
@@ -420,7 +421,8 @@ HTML_CONTENT = """
             { symbol: "YESBANK-EQ", token: "11915", name: "Yes Bank Ltd", price: 24.30, chg: -0.80, exchange: "NSE" },
             { symbol: "SUZLON-EQ", token: "3327", name: "Suzlon Energy Ltd", price: 48.60, chg: 2.10, exchange: "NSE" },
             { symbol: "PNB-EQ", token: "10666", name: "Punjab National Bank", price: 105.40, chg: 0.50, exchange: "NSE" },
-            { symbol: "IDFCFIRSTB-EQ", token: "11014", name: "IDFC First Bank Ltd", price: 72.10, chg: -1.10, exchange: "NSE" },
+            { symbol: "IDFCFIRSTB-EQ",  token: "11014", name: "IDFC First Bank Ltd", price: 72.10, chg: -1.10, exchange: "NSE" },
+            { symbol: "HDFCBANK-EQ", token: "1333", name: "HDFC Bank Ltd", price: 1650.00, chg: 0.50, exchange: "NSE" },
             { symbol: "ITC-EQ", token: "1660", name: "ITC Limited", price: 430.20, chg: 0.4, exchange: "NSE" },
             { symbol: "WIPRO-EQ", token: "3787", name: "Wipro Limited", price: 540.00, chg: 0.4, exchange: "NSE" },
             { symbol: "SBIN-EQ", token: "3045", name: "State Bank of India", price: 810.50, chg: 1.1, exchange: "NSE" },
@@ -431,7 +433,7 @@ HTML_CONTENT = """
             { symbol: "BANKNIFTY", token: "99926009", name: "Bank Nifty Index", price: 48250.10, chg: 0.65, exchange: "NSE" }
         ];
 
-        let watchlist = [...masterStocks];
+        let masterList = [...masterStocks];
         let selectedSymbol = "ITC-EQ";
         let stockPrices = {};
         let stockTokens = {};
@@ -475,7 +477,7 @@ HTML_CONTENT = """
 
         document.addEventListener("DOMContentLoaded", function() {
             loadCredentials();
-            renderWatchlistUI(watchlist);
+            renderWatchlistUI(masterList);
             initChart();
             startServerLogPolling();
         });
@@ -543,12 +545,12 @@ HTML_CONTENT = """
         function autoSelectStockByQty(qtyVal) {
             const qty = parseInt(qtyVal);
             if (isNaN(qty) || qty <= 0) return;
-            if (watchlist.length > 0) {
-                const index = (qty - 1) % watchlist.length;
-                selectedSymbol = watchlist[index].symbol;
+            if (masterList.length > 0) {
+                const index = (qty - 1) % masterList.length;
+                selectedSymbol = masterList[index].symbol;
                 document.getElementById("activeSymbolTitle").innerText = selectedSymbol;
                 document.getElementById("barSymbol").innerText = selectedSymbol;
-                renderWatchlistUI(watchlist);
+                renderWatchlistUI(masterList);
                 loadHistoricalData();
                 updateServerSelectedSymbol();
             }
@@ -569,19 +571,20 @@ HTML_CONTENT = """
             const minPrice = (minVal !== "") ? parseFloat(minVal) : 0;
             const maxPrice = (maxVal !== "") ? parseFloat(maxVal) : Infinity;
 
-            watchlist = masterStocks.filter(s => {
+            const filtered = masterStocks.filter(s => {
                 const p = stockPrices[s.symbol] || s.price || 100.0;
-                return (s.symbol.toLowerCase().includes(query) || s.name.toLowerCase().includes(query)) && (p >= minPrice && p <= maxPrice);
+                const matchesQuery = s.symbol.toLowerCase().includes(query) || s.name.toLowerCase().includes(query);
+                const matchesPrice = (p >= minPrice && p <= maxPrice);
+                return matchesQuery && matchesPrice;
             });
-            renderWatchlistUI(watchlist);
+            renderWatchlistUI(filtered);
         }
 
         function resetWatchlist() {
             document.getElementById("searchInput").value = "";
             document.getElementById("minPriceInput").value = "";
             document.getElementById("maxPriceInput").value = "";
-            watchlist = [...masterStocks];
-            renderWatchlistUI(watchlist);
+            renderWatchlistUI(masterStocks);
             showToast("Watchlist reset!");
         }
 
@@ -590,7 +593,7 @@ HTML_CONTENT = """
             if (!container) return;
             container.innerHTML = "";
             if (items.length === 0) {
-                container.innerHTML = `<div style="padding: 15px; color: #94a3b8; text-align: center; font-size: 11px;">No stocks match this range!</div>`;
+                container.innerHTML = `<div style="padding: 15px; color: #94a3b8; text-align: center; font-size: 11px;">No stocks found!</div>`;
                 return;
             }
             items.forEach(s => {
@@ -600,7 +603,7 @@ HTML_CONTENT = """
                     selectedSymbol = s.symbol;
                     document.getElementById("activeSymbolTitle").innerText = selectedSymbol;
                     document.getElementById("barSymbol").innerText = selectedSymbol;
-                    renderWatchlistUI(watchlist);
+                    renderWatchlistUI(masterStocks);
                     loadHistoricalData();
                     updateServerSelectedSymbol();
                 };
