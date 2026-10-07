@@ -46,7 +46,7 @@ server_state = {
     "bot_qty": 1,
     "bot_product": "INTRADAY",
     "bot_sl": 5.0,
-    "bot_tsl": 2.0,  # Trailing stop loss jump value
+    "bot_tsl": 2.0,
     "active_trade": None,
     "prices": {s["symbol"]: s["price"] for s in MASTER_STOCKS},
     "logs": ["[System] Server-side dynamic trailing engine initialized."]
@@ -88,34 +88,30 @@ async def background_trading_worker():
                     trade = server_state["active_trade"]
                     if trade and trade["symbol"] == sym:
                         if trade["type"] == "BUY":
-                            # Check if price moved up to trigger trailing stop loss adjustment
                             if new_price > trade["entryPrice"]:
                                 potential_new_sl = new_price - server_state["bot_sl"]
                                 if potential_new_sl > trade["currentSl"]:
                                     trade["currentSl"] = potential_new_sl
                                     add_server_log(f"[Trailing SL] Price rose to ₹{new_price}. Stop-loss trailed upwards to ₹{round(potential_new_sl, 2)}")
                             
-                            # Hard Stoploss Hit Check
                             if new_price <= trade["currentSl"]:
                                 add_server_log(f"[Risk Management] Stoploss hit for {sym} at ₹{new_price}. Square off triggered!")
                                 server_state["active_trade"] = None
 
                         elif trade["type"] == "SELL":
-                            # Check if price moved down to trigger trailing stop loss adjustment for SELL
                             if new_price < trade["entryPrice"]:
                                 potential_new_sl = new_price + server_state["bot_sl"]
                                 if potential_new_sl < trade["currentSl"]:
                                     trade["currentSl"] = potential_new_sl
                                     add_server_log(f"[Trailing SL] Price dropped to ₹{new_price}. Stop-loss trailed downwards to ₹{round(potential_new_sl, 2)}")
                             
-                            # Hard Stoploss Hit Check for SELL
                             if new_price >= trade["currentSl"]:
                                 add_server_log(f"[Risk Management] Stoploss hit for {sym} at ₹{new_price}. Square off triggered!")
                                 server_state["active_trade"] = None
 
                     # Autonomous Bot Execution on Server
                     if server_state["bot_running"] and not server_state["active_trade"]:
-                        if import_random_check(): # 3% probability simulation trigger per tick
+                        if import_random_check():
                             mode = server_state["bot_mode"]
                             qty = server_state["bot_qty"]
                             product = server_state["bot_product"]
@@ -893,7 +889,7 @@ async def connect_broker(data: dict):
             add_server_log("Successfully connected to Angel One SmartAPI session with Dynamic TSL.")
             return {"status": "success"}
     except Exception as e:
-        return {"status":="error", "message": str(e)}
+        return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
