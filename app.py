@@ -37,7 +37,7 @@ MASTER_STOCKS = [
 
 smart_api_obj = None
 
-# Server-Side Shared State for Background Bot & Polling
+# Server-Side Shared State with Dynamic Trailing Stop-Loss Parameters
 server_state = {
     "connected": False,
     "selected_symbol": "RELIANCE-EQ",
@@ -46,9 +46,10 @@ server_state = {
     "bot_qty": 1,
     "bot_product": "INTRADAY",
     "bot_sl": 5.0,
+    "bot_tsl": 2.0,  # Trailing stop loss jump value
     "active_trade": None,
     "prices": {s["symbol"]: s["price"] for s in MASTER_STOCKS},
-    "logs": ["[System] Server-side background trading engine initialized."]
+    "logs": ["[System] Server-side dynamic trailing engine initialized."]
 }
 
 def add_server_log(msg):
@@ -59,7 +60,7 @@ def add_server_log(msg):
     if len(server_state["logs"]) > 100:
         server_state["logs"].pop(0)
 
-# BACKGROUND ASYNC TASK: Runs 24/7 on Server irrespective of mobile browser state
+# BACKGROUND ASYNC TASK: 24/7 Server Polling + Dynamic Trailing Stop-Loss Management
 async def background_trading_worker():
     while True:
         await asyncio.sleep(2)
@@ -83,21 +84,38 @@ async def background_trading_worker():
                     old_price = server_state["prices"].get(sym, new_price)
                     server_state["prices"][sym] = new_price
 
-                    # Check Active Trade PnL & Stoploss on Server
+                    # ACTIVE TRADE DYNAMIC TRAILING STOP LOSS & RISK MANAGEMENT LOGIC
                     trade = server_state["active_trade"]
                     if trade and trade["symbol"] == sym:
-                        pnl = (new_price - trade["entryPrice"]) * trade["qty"] if trade["type"] == "BUY" else (trade["entryPrice"] - new_price) * trade["qty"]
-                        # Server-side stop loss safety check
-                        if trade["type"] == "BUY" and new_price <= (trade["entryPrice"] - trade["sl"]):
-                            add_server_log(f"[Risk Management] Stoploss hit for {sym} at ₹{new_price}. Square off triggered!")
-                            server_state["active_trade"] = None
-                        elif trade["type"] == "SELL" and new_price >= (trade["entryPrice"] + trade["sl"]):
-                            add_server_log(f"[Risk Management] Stoploss hit for {sym} at ₹{new_price}. Square off triggered!")
-                            server_state["active_trade"] = None
+                        if trade["type"] == "BUY":
+                            # Check if price moved up to trigger trailing stop loss adjustment
+                            if new_price > trade["entryPrice"]:
+                                potential_new_sl = new_price - server_state["bot_sl"]
+                                if potential_new_sl > trade["currentSl"]:
+                                    trade["currentSl"] = potential_new_sl
+                                    add_server_log(f"[Trailing SL] Price rose to ₹{new_price}. Stop-loss trailed upwards to ₹{round(potential_new_sl, 2)}")
+                            
+                            # Hard Stoploss Hit Check
+                            if new_price <= trade["currentSl"]:
+                                add_server_log(f"[Risk Management] Stoploss hit for {sym} at ₹{new_price}. Square off triggered!")
+                                server_state["active_trade"] = None
+
+                        elif trade["type"] == "SELL":
+                            # Check if price moved down to trigger trailing stop loss adjustment for SELL
+                            if new_price < trade["entryPrice"]:
+                                potential_new_sl = new_price + server_state["bot_sl"]
+                                if potential_new_sl < trade["currentSl"]:
+                                    trade["currentSl"] = potential_new_sl
+                                    add_server_log(f"[Trailing SL] Price dropped to ₹{new_price}. Stop-loss trailed downwards to ₹{round(potential_new_sl, 2)}")
+                            
+                            # Hard Stoploss Hit Check for SELL
+                            if new_price >= trade["currentSl"]:
+                                add_server_log(f"[Risk Management] Stoploss hit for {sym} at ₹{new_price}. Square off triggered!")
+                                server_state["active_trade"] = None
 
                     # Autonomous Bot Execution on Server
-                    if server_state["bot_running"]:
-                        if import_random_check(): # 3% probability trigger simulation per tick
+                    if server_state["bot_running"] and not server_state["active_trade"]:
+                        if import_random_check(): # 3% probability simulation trigger per tick
                             mode = server_state["bot_mode"]
                             qty = server_state["bot_qty"]
                             product = server_state["bot_product"]
@@ -116,6 +134,7 @@ async def background_trading_worker():
                                 t_price = 120.00
                                 tx_type = "BUY"
 
+                            initial_sl = (t_price - sl_val) if tx_type == "BUY" else (t_price + sl_val)
                             order_params = {
                                 "variety": "NORMAL",
                                 "tradingsymbol": t_sym,
@@ -127,14 +146,20 @@ async def background_trading_worker():
                                 "duration": "DAY",
                                 "price": str(t_price),
                                 "squareoff": "0",
-                                "stoploss": str(t_price - sl_val if tx_type == "BUY" else t_price + sl_val),
+                                "stoploss": str(initial_sl),
                                 "quantity": str(qty)
                             }
                             
                             ord_id = smart_api_obj.placeOrder(order_params)
                             if ord_id:
-                                server_state["active_trade"] = {"symbol": t_sym, "entryPrice": t_price, "qty": qty, "type": tx_type, "sl": sl_val}
-                                add_server_log(f"[Server Bot] Successfully placed automated {tx_type} order for {t_sym} at ₹{t_price} | Order ID: {ord_id}")
+                                server_state["active_trade"] = {
+                                    "symbol": t_sym, 
+                                    "entryPrice": t_price, 
+                                    "qty": qty, 
+                                    "type": tx_type, 
+                                    "currentSl": initial_sl
+                                }
+                                add_server_log(f"[Server Bot] Automated {tx_type} order placed for {t_sym} at ₹{t_price} | Initial SL: ₹{round(initial_sl, 2)}")
         except Exception as e:
             pass
 
@@ -151,7 +176,7 @@ HTML_CONTENT = """
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Angel One Pro Terminal - 24/7 Server Autonomous Bot</title>
+    <title>Angel One Pro Terminal - Dynamic Trailing Stop-Loss Bot</title>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -182,8 +207,6 @@ HTML_CONTENT = """
         #chartContainer { width: 100%; height: 485px; background-color: #0b0e14; position: relative; }
         .control-panel { padding: 20px; overflow-y: auto; height: 100%; }
         .control-group { background-color: #131722; border: 1px solid #2a2e39; padding: 20px; border-radius: 6px; margin-bottom: 15px; max-width: 650px; }
-        .flash-up { color: #089981 !important; }
-        .flash-down { color: #f23645 !important; }
 
         .chart-ohlc-bar { background-color: #131722; border-bottom: 1px solid #2a2e39; padding: 8px 15px; display: flex; align-items: center; gap: 15px; font-size: 11px; flex-shrink: 0; }
         .ohlc-item { display: flex; gap: 4px; }
@@ -206,7 +229,7 @@ HTML_CONTENT = """
         <div><b>▲ BANKNIFTY</b> <span style="color: #089981; margin-left: 5px;">48,250.10 (+0.65%)</span></div>
         <div style="display: flex; gap: 15px; align-items: center;">
             <div style="font-size: 11px; background: #181c25; padding: 4px 10px; border-radius: 4px; border: 1px solid #2a2e39;">Live P&L: <span id="headerPnl" style="font-weight: bold; color: #089981;">₹0.00</span></div>
-            <div style="color: #38bdf8; font-weight: bold;">⚡ 24/7 Server Pro Terminal</div>
+            <div style="color: #38bdf8; font-weight: bold;">⚡ Dynamic Trailing Terminal</div>
         </div>
     </div>
 
@@ -242,7 +265,7 @@ HTML_CONTENT = """
             <div class="tabs">
                 <div class="tab active" onclick="switchTab('chart', this)">Chart & Analysis</div>
                 <div class="tab" onclick="switchTab('options', this)">Options Chain (CE/PE)</div>
-                <div class="tab" onclick="switchTab('trade', this)">Manual Trade & Stoploss</div>
+                <div class="tab" onclick="switchTab('trade', this)">Manual Trade & TSL</div>
                 <div class="tab" onclick="switchTab('bot', this)">24/7 Server Bot</div>
                 <div class="tab" onclick="switchTab('logs', this)">Server Logs</div>
             </div>
@@ -262,16 +285,6 @@ HTML_CONTENT = """
                         <option value="HeikenAshi">Heiken Ashi</option>
                     </select>
                     <button class="btn" style="background-color: #181c25; color: #38bdf8;" onclick="manualRefreshChart()">🔄 Refresh Chart</button>
-                    
-                    <div style="position: relative; display: inline-block;">
-                        <button class="btn" style="background-color: #181c25; color: #38bdf8;" onclick="toggleIndicatorMenu()">Indicators ▼</button>
-                        <div id="indicatorDropdown" style="display: none; position: absolute; background: #181c25; border: 1px solid #2a2e39; padding: 10px; z-index: 10; width: 190px; border-radius: 4px; top: 30px;">
-                            <label style="display:block; font-size:11px; margin-bottom:6px; cursor:pointer;"><input type="checkbox" value="SMA" onchange="applyIndicator(this)"> SMA (Moving Avg)</label>
-                            <label style="display:block; font-size:11px; margin-bottom:6px; cursor:pointer;"><input type="checkbox" value="BB" onchange="applyIndicator(this)"> Bollinger Bands</label>
-                            <label style="display:block; font-size:11px; margin-bottom:6px; cursor:pointer;"><input type="checkbox" value="RSI" onchange="applyIndicator(this)"> RSI (Relative Str)</label>
-                            <label style="display:block; font-size:11px; cursor:pointer;"><input type="checkbox" value="MACD" onchange="applyIndicator(this)"> MACD Oscillator</label>
-                        </div>
-                    </div>
                 </div>
 
                 <!-- OHLC & Quick Buy/Sell Bar -->
@@ -350,7 +363,7 @@ HTML_CONTENT = """
             <div id="tab-trade" class="tab-content">
                 <div class="control-panel">
                     <div class="control-group">
-                        <h3 style="margin-top: 0; color: #38bdf8; font-size: 14px;">Manual Order Execution & Stoploss</h3>
+                        <h3 style="margin-top: 0; color: #38bdf8; font-size: 14px;">Manual Order Execution & Dynamic TSL</h3>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
                             <div>
                                 <label style="font-size: 11px; color: #94a3b8;">Quantity / Lot Size</label>
@@ -416,7 +429,7 @@ HTML_CONTENT = """
             <div id="tab-logs" class="tab-content">
                 <div class="control-panel">
                     <div class="control-group" id="logsContainer" style="width: 100%; font-family: monospace; font-size: 11px; color: #38bdf8; height: 400px; overflow-y: auto;">
-                        [System] 24/7 Server Terminal running. Waiting for connection...
+                        [System] Dynamic Trailing Terminal running. Waiting for connection...
                     </div>
                 </div>
             </div>
@@ -456,7 +469,6 @@ HTML_CONTENT = """
         let stockTokens = {};
         let stockMap = {};
         let stockExchanges = {};
-        let currentMasterData = [];
 
         function showToast(msg) {
             const toast = document.getElementById("toast");
@@ -634,10 +646,6 @@ HTML_CONTENT = """
         }
 
         let chart, candlestickSeries;
-        let currentCandle = null;
-        let currentCandleTime = 0;
-        let oldestLoadedTimestamp = 0;
-        let isLoadingMore = false;
 
         function updateOhlcBar(candle) {
             if (!candle) return;
@@ -649,22 +657,20 @@ HTML_CONTENT = """
             document.getElementById("quickSellPrice").innerText = candle.close.toFixed(2);
         }
 
-        function loadHistoricalData(isMore = false, beforeTimestamp = null) {
+        function loadHistoricalData() {
             const token = stockMap[selectedSymbol] || "2885";
             const exch = stockExchanges[selectedSymbol] || "NSE";
             const tf = document.getElementById("timeframeSelect").value;
             document.getElementById("barTf").innerText = tf;
 
-            let url = `/history?token=${token}&exchange=${exch}&timeframe=${tf}`;
-            if (isMore && beforeTimestamp) url += `&before_to=${beforeTimestamp}`;
-
-            fetch(url).then(res => res.json()).then(data => {
-                if (data && data.length > 0) {
-                    candlestickSeries.setData(data);
-                    updateOhlcBar(data[data.length - 1]);
-                    oldestLoadedTimestamp = data[0].time;
-                }
-            });
+            fetch(`/history?token=${token}&exchange=${exch}&timeframe=${tf}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data && data.length > 0) {
+                        candlestickSeries.setData(data);
+                        updateOhlcBar(data[data.length - 1]);
+                    }
+                });
         }
 
         function initChart() {
@@ -676,7 +682,7 @@ HTML_CONTENT = """
                 grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } }
             });
             candlestickSeries = chart.addCandlestickSeries({ upColor: '#089981', downColor: '#f23645' });
-            loadHistoricalData(false);
+            loadHistoricalData();
         }
 
         function switchTab(tabName, el) {
@@ -705,7 +711,7 @@ HTML_CONTENT = """
                     btn.style.backgroundColor = "#f23645";
                     status.innerText = `● Bot Active on Server [Mode: ${mode}]`;
                     status.style.color = "#089981";
-                    showToast("24/7 Server Bot Started!");
+                    showToast("24/7 Dynamic TSL Bot Started!");
                 } else {
                     btn.innerText = "Start 24/7 Server Bot";
                     btn.style.backgroundColor = "#089981";
@@ -729,10 +735,32 @@ HTML_CONTENT = """
                 body: JSON.stringify(data)
             }).then(res => res.json()).then(resp => {
                 if(resp.status === "success") {
-                    showToast("Broker Connected & 24/7 Engine Active!");
-                    loadHistoricalData(false);
+                    showToast("Broker Connected & Dynamic TSL Engine Active!");
+                    loadHistoricalData();
                 } else {
                     showToast("Login Failed: " + resp.message);
+                }
+            });
+        }
+
+        function executeOrder(type) {
+            const qty = document.getElementById("orderQty").value;
+            const product = document.getElementById("productType").value;
+            const sl = document.getElementById("stopLoss").value;
+            const tsl = document.getElementById("trailingSl").value;
+            const token = stockMap[selectedSymbol] || "2885";
+            const exch = stockExchanges[selectedSymbol] || "NSE";
+            const price = stockPrices[selectedSymbol] || 100.00;
+
+            fetch('/order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol: selectedSymbol, token: token, exchange: exch, transactionType: type, quantity: parseInt(qty), productType: product, price: price, stopLoss: parseFloat(sl), trailingSl: parseFloat(tsl) })
+            }).then(res => res.json()).then(resp => {
+                if(resp.status === "success") {
+                    showToast(`Manual ${type} Order Executed with TSL!`);
+                } else {
+                    showToast("Order Failed: " + resp.message);
                 }
             });
         }
@@ -777,10 +805,10 @@ def toggle_bot(data: dict):
         server_state["bot_qty"] = data.get("qty", 1)
         server_state["bot_product"] = data.get("product", "INTRADAY")
         server_state["bot_sl"] = data.get("sl", 5.0)
-        add_server_log(f"Server Bot Started in {server_state['bot_mode']} mode.")
+        add_server_log(f"Dynamic TSL Bot Started in {server_state['bot_mode']} mode.")
         return {"status": "active"}
     else:
-        add_server_log("Server Bot Stopped.")
+        add_server_log("Dynamic TSL Bot Stopped.")
         return {"status": "stopped"}
 
 @app.get("/server-status")
@@ -806,7 +834,7 @@ def get_options_chain(index: str = "NIFTY", expiry: str = "2026-10-08"):
     return chain
 
 @app.get("/history")
-def get_historical_candles(token: str, exchange: str = "NSE", timeframe: str = "5m", before_to: int = None):
+def get_historical_candles(token: str, exchange: str = "NSE", timeframe: str = "5m"):
     global smart_api_obj
     if not smart_api_obj:
         return []
@@ -827,16 +855,28 @@ async def place_live_order(data: dict):
     try:
         if not smart_api_obj:
             return {"status": "error", "message": "Broker not connected!"}
+        
+        entry_price = float(data["price"])
+        sl_val = float(data.get("stopLoss", 5.0))
+        tx_type = data["transactionType"]
+        initial_sl = (entry_price - sl_val) if tx_type == "BUY" else (entry_price + sl_val)
+
         order_params = {
             "variety": "NORMAL", "tradingsymbol": data["symbol"], "symboltoken": data["token"],
-            "transactiontype": data["transactionType"], "exchange": data.get("exchange", "NSE"),
+            "transactiontype": tx_type, "exchange": data.get("exchange", "NSE"),
             "ordertype": "MARKET", "producttype": data["productType"], "duration": "DAY",
-            "price": str(data["price"]), "squareoff": "0", "stoploss": str(data["price"] - 5.0), "quantity": str(data["quantity"])
+            "price": str(entry_price), "squareoff": "0", "stoploss": str(initial_sl), "quantity": str(data["quantity"])
         }
         order_id = smart_api_obj.placeOrder(order_params)
         if order_id:
-            server_state["active_trade"] = {"symbol": data["symbol"], "entryPrice": float(data["price"]), "qty": data["quantity"], "type": data["transactionType"], "sl": 5.0}
-            add_server_log(f"Manual Order Placed: {data['transactionType']} {data['symbol']} @ ₹{data['price']}")
+            server_state["active_trade"] = {
+                "symbol": data["symbol"], 
+                "entryPrice": entry_price, 
+                "qty": data["quantity"], 
+                "type": tx_type, 
+                "currentSl": initial_sl
+            }
+            add_server_log(f"Manual Order Placed with TSL: {tx_type} {data['symbol']} @ ₹{entry_price} | Initial SL: ₹{round(initial_sl, 2)}")
             return {"status": "success", "orderId": str(order_id)}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -850,10 +890,10 @@ async def connect_broker(data: dict):
         if session and session.get('status'):
             smart_api_obj = obj
             server_state["connected"] = True
-            add_server_log("Successfully connected to Angel One SmartAPI session.")
+            add_server_log("Successfully connected to Angel One SmartAPI session with Dynamic TSL.")
             return {"status": "success"}
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return {"status":="error", "message": str(e)}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
