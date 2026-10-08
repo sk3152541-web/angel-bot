@@ -43,14 +43,9 @@ bg_state = {
     "last_price": 0.0
 }
 
-def calculate_sma(prices, period):
-    """Simple helper to calculate moving average for trend confirmation"""
-    if len(prices) < period:
-        return sum(prices) / len(prices) if prices else 0
-    return sum(prices[-period:]) / period
-
-def get_advanced_trend_signal(exchange, token):
-    """Advanced Trend Analyzer using Moving Average Crossover & Momentum"""
+# --- ALAG SE BANAYA GAYA ADVANCED TREND ANALYZER MODULE ---
+def isolated_advanced_trend_analyzer(exchange, token):
+    """Independent function for Moving Average Trend Confirmation without mixing old code"""
     try:
         if not smart_api_obj:
             return "HOLD"
@@ -69,18 +64,17 @@ def get_advanced_trend_signal(exchange, token):
         if resp and resp.get("status") and resp.get("data"):
             closes = [float(c[4]) for c in resp["data"]]
             if len(closes) >= 10:
-                short_ma = calculate_sma(closes, 3)  # Fast MA
-                long_ma = calculate_sma(closes, 9)   # Slow MA
+                fast_ma = sum(closes[-3:]) / 3
+                slow_ma = sum(closes[-9:]) / 9
                 
-                # Bullish Trend: Fast MA is above Slow MA and latest close is rising
-                if short_ma > long_ma and closes[-1] > closes[-2]:
+                if fast_ma > slow_ma and closes[-1] > closes[-2]:
                     return "BUY"
-                # Bearish Trend: Fast MA is below Slow MA and latest close is falling
-                elif short_ma < long_ma and closes[-1] < closes[-2]:
+                elif fast_ma < slow_ma and closes[-1] < closes[-2]:
                     return "SELL"
     except Exception as e:
-        print("Trend analysis error:", e)
+        print("Isolated Trend Analyzer Error:", e)
     return "HOLD"
+# -----------------------------------------------------------
 
 def background_guardian_worker():
     while True:
@@ -97,9 +91,7 @@ def background_guardian_worker():
                             new_sl = ltp - pos["sl_diff"]
                             if new_sl > pos["current_sl"]:
                                 pos["current_sl"] = new_sl
-                                print(f"[Background Guardian] Price rose to {ltp}. TSL updated to {new_sl}")
                         if ltp <= pos["current_sl"]:
-                            print(f"[Background Guardian] Stop-loss hit at {ltp}! Squaring off...")
                             smart_api_obj.placeOrder({
                                 "variety": "NORMAL", "tradingsymbol": pos["symbol"], "symboltoken": pos["token"],
                                 "transactiontype": "SELL", "exchange": pos["exchange"], "ordertype": "MARKET",
@@ -112,9 +104,7 @@ def background_guardian_worker():
                             new_sl = ltp + pos["sl_diff"]
                             if new_sl < pos["current_sl"]:
                                 pos["current_sl"] = new_sl
-                                print(f"[Background Guardian] Price dropped to {ltp}. TSL updated to {new_sl}")
                         if ltp >= pos["current_sl"]:
-                            print(f"[Background Guardian] Stop-loss hit at {ltp}! Squaring off...")
                             smart_api_obj.placeOrder({
                                 "variety": "NORMAL", "tradingsymbol": pos["symbol"], "symboltoken": pos["token"],
                                 "transactiontype": "BUY", "exchange": pos["exchange"], "ordertype": "MARKET",
@@ -389,7 +379,7 @@ HTML_CONTENT = """
                             </div>
                         </div>
                         <div style="margin-top: 20px;">
-                            <button id="botToggleBtn" class="btn" style="background-color: #089981; color: white; padding: 10px 20px;" onclick="toggleBot()">Start Options & Equity Autonomous Bot</button>
+                            <button id="botToggleBtn" class="btn" style="background-color: #089981; color: white; padding: 10px 20px;" onclick="toggleBot()">Start Advanced Trend Autonomous Bot</button>
                             <span id="botStatus" style="margin-left: 15px; font-size: 12px; color: #f23645;">● Bot Status: Stopped</span>
                         </div>
                     </div>
@@ -400,7 +390,7 @@ HTML_CONTENT = """
             <div id="tab-logs" class="tab-content">
                 <div class="control-panel">
                     <div class="control-group" id="logsContainer" style="width: 100%; font-family: monospace; font-size: 11px; color: #38bdf8; height: 400px; overflow-y: auto;">
-                        [System] Terminal running with Options Auto-Trading Bot. Waiting for broker connection...
+                        [System] Terminal running with Advanced Trend Options Auto-Bot. Waiting for broker connection...
                     </div>
                 </div>
             </div>
@@ -808,12 +798,12 @@ HTML_CONTENT = """
             if(botRunning) {
                 btn.innerText = "Stop Advanced Trend Bot";
                 btn.style.backgroundColor = "#f23645";
-                status.innerText = `● Bot Status: Active [Mode: ${targetMode}]`;
+                status.innerText = `● Bot Status: Active [Trend Filter On - Mode: ${targetMode}]`;
                 status.style.color = "#089981";
                 addLog(`Advanced Trend Bot started in ${targetMode} mode.`);
-                showToast("Advanced Bot Started Successfully!");
+                showToast("Advanced Autonomous Bot Started!");
             } else {
-                btn.innerText = "Start Options & Equity Autonomous Bot";
+                btn.innerText = "Start Advanced Trend Autonomous Bot";
                 btn.style.backgroundColor = "#089981";
                 status.innerText = "● Bot Status: Stopped";
                 status.style.color = "#f23645";
@@ -1033,16 +1023,16 @@ def get_live_ltp(exchange: str, symbol: str, token: str):
         if resp and resp.get("status") and resp.get("data"):
             ltp = float(resp["data"].get("ltp", 0.0))
             
-            # --- ADVANCED BOT TREND EXECUTION TRIGGER ---
+            # --- INDEPENDENT ADVANCED BOT AUTOMATED EXECUTION TRIGGER ---
+            # Yeh bilkul alag block hai jo sirf tabhi chalega jab bot active hoga aur koi position open nahi hogi
             if bg_state.get("bot_active") and not bg_state["active_position"]:
-                signal = get_advanced_trend_signal(exchange, symbol)
-                if signal in ["BUY", "SELL"]:
-                    print(f"[Advanced Bot] Trend confirmed {signal} for {symbol} at LTP {ltp}")
-                    # Trigger automated trade based on advanced trend
-                    initial_sl = ltp - 5.0 if signal == "BUY" else ltp + 5.0
+                trend_signal = isolated_advanced_trend_analyzer(exchange, token)
+                if trend_signal in ["BUY", "SELL"]:
+                    print(f"[Advanced Autonomous Bot] Trend confirmed {trend_signal} for {symbol} at LTP {ltp}")
+                    initial_sl = ltp - 5.0 if trend_signal == "BUY" else ltp + 5.0
                     order_params = {
                         "variety": "NORMAL", "tradingsymbol": symbol, "symboltoken": token,
-                        "transactiontype": signal, "exchange": exchange, "ordertype": "MARKET",
+                        "transactiontype": trend_signal, "exchange": exchange, "ordertype": "MARKET",
                         "producttype": "INTRADAY", "duration": "DAY", "price": str(ltp),
                         "squareoff": "0", "stoploss": str(initial_sl), "quantity": "1"
                     }
@@ -1050,10 +1040,10 @@ def get_live_ltp(exchange: str, symbol: str, token: str):
                     if order_id:
                         bg_state["active_position"] = {
                             "symbol": symbol, "token": token, "exchange": exchange,
-                            "type": signal, "entry_price": ltp, "current_sl": initial_sl,
+                            "type": trend_signal, "entry_price": ltp, "current_sl": initial_sl,
                             "sl_diff": 5.0, "quantity": 1, "product_type": "INTRADAY"
                         }
-            # ---------------------------------------------
+            # -------------------------------------------------------------
             
             return {"status": "success", "price": ltp}
     except Exception as e:
@@ -1071,6 +1061,7 @@ async def place_live_order(data: dict):
         exchange = data.get("exchange", "NSE")
         entry_price = float(data["price"])
         sl_diff = float(data["stopLoss"])
+        tsl_jump = float(data["trailingSl"])
         tx_type = data["transactionType"]
         qty = int(data["quantity"])
         product_type = data["productType"]
@@ -1122,7 +1113,7 @@ async def connect_broker(data: dict):
         
         if session and session.get('status'):
             smart_api_obj = obj
-            bg_state["bot_active"] = True  # Enable advanced trend checking when connected
+            bg_state["bot_active"] = True  # Enable advanced trend checking on connection
             return {"status": "success"}
         else:
             return {"status": "error", "message": "Invalid Credentials"}
