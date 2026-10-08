@@ -492,6 +492,7 @@ HTML_CONTENT = """
             renderWatchlistUI(masterStocks);
             initChart();
             startServerLogPolling();
+            startLivePriceSync();
         });
 
         function startServerLogPolling() {
@@ -506,6 +507,29 @@ HTML_CONTENT = """
                         }
                     }).catch(err => {});
             }, 3000);
+        }
+
+        function startLivePriceSync() {
+            setInterval(() => {
+                fetch('/server-prices')
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data && data.prices) {
+                            stockPrices = data.prices;
+                            masterStocks.forEach(s => {
+                                const priceEl = document.getElementById(`wl_${s.symbol}`);
+                                if (priceEl && stockPrices[s.symbol] !== undefined) {
+                                    priceEl.innerText = `₹${stockPrices[s.symbol].toFixed(2)}`;
+                                }
+                            });
+                            if (stockPrices[selectedSymbol] !== undefined) {
+                                const currP = stockPrices[selectedSymbol];
+                                document.getElementById("quickBuyPrice").innerText = currP.toFixed(2);
+                                document.getElementById("quickSellPrice").innerText = currP.toFixed(2);
+                            }
+                        }
+                    }).catch(err => {});
+            }, 2000);
         }
 
         function toggleIndicatorMenu() {
@@ -824,6 +848,10 @@ def toggle_bot(data: dict):
 def get_server_status():
     return {"logs": server_state["logs"], "bot_running": server_state["bot_running"]}
 
+@app.get("/server-prices")
+def get_server_prices():
+    return {"prices": server_state["prices"]}
+
 @app.get("/options-chain")
 def get_options_chain(index: str = "NIFTY", expiry: str = "2026-10-08"):
     base_price = 22620.0 if index == "NIFTY" else 48250.0
@@ -852,10 +880,27 @@ def get_historical_candles(token: str, exchange: str = "NSE", timeframe: str = "
         to_date = datetime.now().strftime("%Y-%m-%d %H:%M")
         from_date = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d %H:%M")
         resp = smart_api_obj.getCandleData({"exchange": exchange, "symboltoken": token, "interval": interval_map.get(timeframe, "FIVE_MINUTE"), "fromdate": from_date, "todate": to_date})
+        
         if resp and resp.get("status") and resp.get("data"):
-            return [{"time": int(datetime.fromisoformat(c[0].replace("+05:30", "")).timestamp()), "open": float(c[1]), "high": float(c[2]), "low": float(c[3]), "close": float(c[4])} for c in resp["data"]]
+            candles = []
+            for c in resp["data"]:
+                try:
+                    raw_time = c[0].replace("Z", "").replace("+05:30", "")
+                    if "." in raw_time:
+                        raw_time = raw_time.split(".")[0]
+                    dt_obj = datetime.fromisoformat(raw_time)
+                    candles.append({
+                        "time": int(dt_obj.timestamp()),
+                        "open": float(c[1]),
+                        "high": float(c[2]),
+                        "low": float(c[3]),
+                        "close": float(c[4])
+                    })
+                except Exception as parse_err:
+                    continue
+            return candles
     except Exception as e:
-        pass
+        add_server_log(f"[History Error] {str(e)}")
     return []
 
 @app.post("/order")
