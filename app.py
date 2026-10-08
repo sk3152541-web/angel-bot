@@ -9,6 +9,7 @@ import os
 from datetime import datetime, timedelta
 from SmartApi import SmartConnect
 import threading
+import time
 
 app = FastAPI()
 
@@ -40,12 +41,13 @@ smart_api_obj = None
 
 bg_state = {
     "active_position": None,
-    "last_price": 0.0
+    "last_price": 0.0,
+    "bot_active": False
 }
 
-# --- ALAG SE BANAYA GAYA ADVANCED TREND ANALYZER MODULE ---
+# --- ISOLATED ADVANCED TREND ANALYZER MODULE ---
 def isolated_advanced_trend_analyzer(exchange, token):
-    """Independent function for Moving Average Trend Confirmation without mixing old code"""
+    """Independent function for Moving Average Trend Confirmation"""
     try:
         if not smart_api_obj:
             return "HOLD"
@@ -74,47 +76,81 @@ def isolated_advanced_trend_analyzer(exchange, token):
     except Exception as e:
         print("Isolated Trend Analyzer Error:", e)
     return "HOLD"
-# -----------------------------------------------------------
 
+# --- SAFE BACKGROUND WORKER (Handles TSL & Autonomous Trend Entries Safely) ---
 def background_guardian_worker():
+    trend_check_counter = 0
     while True:
         try:
-            if smart_api_obj and bg_state["active_position"]:
-                pos = bg_state["active_position"]
-                resp = smart_api_obj.ltpData(pos["exchange"], pos["symbol"], pos["token"])
-                if resp and resp.get("status") and resp.get("data"):
-                    ltp = float(resp["data"].get("ltp", 0.0))
-                    bg_state["last_price"] = ltp
-                    
-                    if pos["type"] == "BUY":
-                        if ltp > pos["entry_price"]:
-                            new_sl = ltp - pos["sl_diff"]
-                            if new_sl > pos["current_sl"]:
-                                pos["current_sl"] = new_sl
-                        if ltp <= pos["current_sl"]:
-                            smart_api_obj.placeOrder({
-                                "variety": "NORMAL", "tradingsymbol": pos["symbol"], "symboltoken": pos["token"],
-                                "transactiontype": "SELL", "exchange": pos["exchange"], "ordertype": "MARKET",
-                                "producttype": pos["product_type"], "duration": "DAY", "price": str(ltp),
-                                "squareoff": "0", "stoploss": "0", "quantity": str(pos["quantity"])
-                            })
-                            bg_state["active_position"] = None
-                    elif pos["type"] == "SELL":
-                        if ltp < pos["entry_price"]:
-                            new_sl = ltp + pos["sl_diff"]
-                            if new_sl < pos["current_sl"]:
-                                pos["current_sl"] = new_sl
-                        if ltp >= pos["current_sl"]:
-                            smart_api_obj.placeOrder({
-                                "variety": "NORMAL", "tradingsymbol": pos["symbol"], "symboltoken": pos["token"],
-                                "transactiontype": "BUY", "exchange": pos["exchange"], "ordertype": "MARKET",
-                                "producttype": pos["product_type"], "duration": "DAY", "price": str(ltp),
-                                "squareoff": "0", "stoploss": "0", "quantity": str(pos["quantity"])
-                            })
-                            bg_state["active_position"] = None
+            if smart_api_obj:
+                # 1. Handle Active Position Trailing Stop-Loss (Runs every 2 seconds)
+                if bg_state["active_position"]:
+                    pos = bg_state["active_position"]
+                    resp = smart_api_obj.ltpData(pos["exchange"], pos["symbol"], pos["token"])
+                    if resp and resp.get("status") and resp.get("data"):
+                        ltp = float(resp["data"].get("ltp", 0.0))
+                        bg_state["last_price"] = ltp
+                        
+                        if pos["type"] == "BUY":
+                            if ltp > pos["entry_price"]:
+                                new_sl = ltp - pos["sl_diff"]
+                                if new_sl > pos["current_sl"]:
+                                    pos["current_sl"] = new_sl
+                            if ltp <= pos["current_sl"]:
+                                smart_api_obj.placeOrder({
+                                    "variety": "NORMAL", "tradingsymbol": pos["symbol"], "symboltoken": pos["token"],
+                                    "transactiontype": "SELL", "exchange": pos["exchange"], "ordertype": "MARKET",
+                                    "producttype": pos["product_type"], "duration": "DAY", "price": str(ltp),
+                                    "squareoff": "0", "stoploss": "0", "quantity": str(pos["quantity"])
+                                })
+                                bg_state["active_position"] = None
+                        elif pos["type"] == "SELL":
+                            if ltp < pos["entry_price"]:
+                                new_sl = ltp + pos["sl_diff"]
+                                if new_sl < pos["current_sl"]:
+                                    pos["current_sl"] = new_sl
+                            if ltp >= pos["current_sl"]:
+                                smart_api_obj.placeOrder({
+                                    "variety": "NORMAL", "tradingsymbol": pos["symbol"], "symboltoken": pos["token"],
+                                    "transactiontype": "BUY", "exchange": pos["exchange"], "ordertype": "MARKET",
+                                    "producttype": pos["product_type"], "duration": "DAY", "price": str(ltp),
+                                    "squareoff": "0", "stoploss": "0", "quantity": str(pos["quantity"])
+                                })
+                                bg_state["active_position"] = None
+
+                # 2. Handle Autonomous Trend Entry (Runs safely every 30 seconds to prevent API Rate Limits)
+                elif bg_state.get("bot_active"):
+                    trend_check_counter += 1
+                    if trend_check_counter >= 15:  # 15 * 2 seconds = 30 seconds interval
+                        trend_check_counter = 0
+                        # Default target stock/index (Reliance or Nifty token '2885', 'NSE')
+                        target_exch = "NSE"
+                        target_sym = "RELIANCE-EQ"
+                        target_token = "2885"
+                        
+                        trend_signal = isolated_advanced_trend_analyzer(target_exch, target_token)
+                        if trend_signal in ["BUY", "SELL"]:
+                            ltp_resp = smart_api_obj.ltpData(target_exch, target_sym, target_token)
+                            if ltp_resp and ltp_resp.get("status") and ltp_resp.get("data"):
+                                ltp = float(ltp_resp["data"].get("ltp", 0.0))
+                                if ltp > 0:
+                                    print(f"[Autonomous Bot] Trend confirmed {trend_signal} for {target_sym} at LTP {ltp}")
+                                    initial_sl = ltp - 5.0 if trend_signal == "BUY" else ltp + 5.0
+                                    order_params = {
+                                        "variety": "NORMAL", "tradingsymbol": target_sym, "symboltoken": target_token,
+                                        "transactiontype": trend_signal, "exchange": target_exch, "ordertype": "MARKET",
+                                        "producttype": "INTRADAY", "duration": "DAY", "price": str(ltp),
+                                        "squareoff": "0", "stoploss": str(initial_sl), "quantity": "1"
+                                    }
+                                    order_id = smart_api_obj.placeOrder(order_params)
+                                    if order_id:
+                                        bg_state["active_position"] = {
+                                            "symbol": target_sym, "token": target_token, "exchange": target_exch,
+                                            "type": trend_signal, "entry_price": ltp, "current_sl": initial_sl,
+                                            "sl_diff": 5.0, "quantity": 1, "product_type": "INTRADAY"
+                                        }
         except Exception as e:
-            pass
-        import time
+            print("Background guardian error:", e)
         time.sleep(2)
 
 guardian_thread = threading.Thread(target=background_guardian_worker, daemon=True)
@@ -795,21 +831,29 @@ HTML_CONTENT = """
             const btn = document.getElementById("botToggleBtn");
             const status = document.getElementById("botStatus");
             const targetMode = document.getElementById("botTargetMode").value;
-            if(botRunning) {
-                btn.innerText = "Stop Advanced Trend Bot";
-                btn.style.backgroundColor = "#f23645";
-                status.innerText = `● Bot Status: Active [Trend Filter On - Mode: ${targetMode}]`;
-                status.style.color = "#089981";
-                addLog(`Advanced Trend Bot started in ${targetMode} mode.`);
-                showToast("Advanced Autonomous Bot Started!");
-            } else {
-                btn.innerText = "Start Advanced Trend Autonomous Bot";
-                btn.style.backgroundColor = "#089981";
-                status.innerText = "● Bot Status: Stopped";
-                status.style.color = "#f23645";
-                addLog("Advanced Bot stopped.");
-                showToast("Advanced Bot Stopped!");
-            }
+            
+            // Send toggle state to backend
+            fetch('/toggle-bot', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ active: botRunning, mode: targetMode })
+            }).then(res => res.json()).then(resp => {
+                if(botRunning) {
+                    btn.innerText = "Stop Advanced Trend Bot";
+                    btn.style.backgroundColor = "#f23645";
+                    status.innerText = `● Bot Status: Active [Trend Filter On - Mode: ${targetMode}]`;
+                    status.style.color = "#089981";
+                    addLog(`Advanced Trend Bot started in ${targetMode} mode.`);
+                    showToast("Advanced Autonomous Bot Started!");
+                } else {
+                    btn.innerText = "Start Advanced Trend Autonomous Bot";
+                    btn.style.backgroundColor = "#089981";
+                    status.innerText = "● Bot Status: Stopped";
+                    status.style.color = "#f23645";
+                    addLog("Advanced Bot stopped.");
+                    showToast("Advanced Bot Stopped!");
+                }
+            });
         }
 
         let isConnected = false;
@@ -1022,33 +1066,15 @@ def get_live_ltp(exchange: str, symbol: str, token: str):
         resp = smart_api_obj.ltpData(exchange, symbol, token)
         if resp and resp.get("status") and resp.get("data"):
             ltp = float(resp["data"].get("ltp", 0.0))
-            
-            # --- INDEPENDENT ADVANCED BOT AUTOMATED EXECUTION TRIGGER ---
-            # Yeh bilkul alag block hai jo sirf tabhi chalega jab bot active hoga aur koi position open nahi hogi
-            if bg_state.get("bot_active") and not bg_state["active_position"]:
-                trend_signal = isolated_advanced_trend_analyzer(exchange, token)
-                if trend_signal in ["BUY", "SELL"]:
-                    print(f"[Advanced Autonomous Bot] Trend confirmed {trend_signal} for {symbol} at LTP {ltp}")
-                    initial_sl = ltp - 5.0 if trend_signal == "BUY" else ltp + 5.0
-                    order_params = {
-                        "variety": "NORMAL", "tradingsymbol": symbol, "symboltoken": token,
-                        "transactiontype": trend_signal, "exchange": exchange, "ordertype": "MARKET",
-                        "producttype": "INTRADAY", "duration": "DAY", "price": str(ltp),
-                        "squareoff": "0", "stoploss": str(initial_sl), "quantity": "1"
-                    }
-                    order_id = smart_api_obj.placeOrder(order_params)
-                    if order_id:
-                        bg_state["active_position"] = {
-                            "symbol": symbol, "token": token, "exchange": exchange,
-                            "type": trend_signal, "entry_price": ltp, "current_sl": initial_sl,
-                            "sl_diff": 5.0, "quantity": 1, "product_type": "INTRADAY"
-                        }
-            # -------------------------------------------------------------
-            
             return {"status": "success", "price": ltp}
     except Exception as e:
         print("LTP fetch error:", e)
     return {"status": "error", "price": 0.0}
+
+@app.post("/toggle-bot")
+async def toggle_bot_state(data: dict):
+    bg_state["bot_active"] = data.get("active", False)
+    return {"status": "success", "bot_active": bg_state["bot_active"]}
 
 @app.post("/order")
 async def place_live_order(data: dict):
@@ -1113,7 +1139,6 @@ async def connect_broker(data: dict):
         
         if session and session.get('status'):
             smart_api_obj = obj
-            bg_state["bot_active"] = True  # Enable advanced trend checking on connection
             return {"status": "success"}
         else:
             return {"status": "error", "message": "Invalid Credentials"}
