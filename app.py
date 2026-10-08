@@ -43,6 +43,45 @@ bg_state = {
     "last_price": 0.0
 }
 
+def calculate_sma(prices, period):
+    """Simple helper to calculate moving average for trend confirmation"""
+    if len(prices) < period:
+        return sum(prices) / len(prices) if prices else 0
+    return sum(prices[-period:]) / period
+
+def get_advanced_trend_signal(exchange, token):
+    """Advanced Trend Analyzer using Moving Average Crossover & Momentum"""
+    try:
+        if not smart_api_obj:
+            return "HOLD"
+        
+        to_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+        from_date = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d %H:%M")
+        
+        historicParam = {
+            "exchange": exchange,
+            "symboltoken": token,
+            "interval": "FIVE_MINUTE",
+            "fromdate": from_date,
+            "todate": to_date
+        }
+        resp = smart_api_obj.getCandleData(historicParam)
+        if resp and resp.get("status") and resp.get("data"):
+            closes = [float(c[4]) for c in resp["data"]]
+            if len(closes) >= 10:
+                short_ma = calculate_sma(closes, 3)  # Fast MA
+                long_ma = calculate_sma(closes, 9)   # Slow MA
+                
+                # Bullish Trend: Fast MA is above Slow MA and latest close is rising
+                if short_ma > long_ma and closes[-1] > closes[-2]:
+                    return "BUY"
+                # Bearish Trend: Fast MA is below Slow MA and latest close is falling
+                elif short_ma < long_ma and closes[-1] < closes[-2]:
+                    return "SELL"
+    except Exception as e:
+        print("Trend analysis error:", e)
+    return "HOLD"
+
 def background_guardian_worker():
     while True:
         try:
@@ -96,7 +135,7 @@ HTML_CONTENT = """
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Angel One Pro Terminal - Options Auto Bot</title>
+    <title>Angel One Pro Terminal - Advanced Options & Equity Bot</title>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -446,7 +485,6 @@ HTML_CONTENT = """
             initChart();
         });
 
-        // SCREEN OFF / ON AUTO-RECONNECT MAGIC LOGIC
         document.addEventListener("visibilitychange", function() {
             if (!document.hidden) {
                 addLog("Screen active ho gayi hai, terminal re-sync ho raha hai...");
@@ -768,19 +806,19 @@ HTML_CONTENT = """
             const status = document.getElementById("botStatus");
             const targetMode = document.getElementById("botTargetMode").value;
             if(botRunning) {
-                btn.innerText = "Stop Options & Equity Autonomous Bot";
+                btn.innerText = "Stop Advanced Trend Bot";
                 btn.style.backgroundColor = "#f23645";
                 status.innerText = `● Bot Status: Active [Mode: ${targetMode}]`;
                 status.style.color = "#089981";
-                addLog(`Autonomous Bot started in ${targetMode} mode.`);
-                showToast("Autonomous Bot Started Successfully!");
+                addLog(`Advanced Trend Bot started in ${targetMode} mode.`);
+                showToast("Advanced Bot Started Successfully!");
             } else {
                 btn.innerText = "Start Options & Equity Autonomous Bot";
                 btn.style.backgroundColor = "#089981";
                 status.innerText = "● Bot Status: Stopped";
                 status.style.color = "#f23645";
-                addLog("Autonomous Bot stopped.");
-                showToast("Autonomous Bot Stopped!");
+                addLog("Advanced Bot stopped.");
+                showToast("Advanced Bot Stopped!");
             }
         }
 
@@ -861,45 +899,6 @@ HTML_CONTENT = """
                             const chartEl = document.getElementById('chartContainer');
                             if (chart && chartEl && chartEl.clientWidth > 0) {
                                 chart.resize(chartEl.clientWidth, 485);
-                            }
-
-                            if (botRunning) {
-                                if (Math.random() < 0.03) {
-                                    const targetMode = document.getElementById("botTargetMode").value;
-                                    const qty = document.getElementById("botQty").value;
-                                    const product = document.getElementById("botProduct").value;
-                                    const sl = document.getElementById("botSl").value;
-                                    
-                                    let tradeSymbol = selectedSymbol;
-                                    let tradeExch = selExch;
-                                    let tradeToken = selToken;
-                                    let tradePrice = newPrice;
-                                    let txType = newPrice >= oldPrice ? 'BUY' : 'SELL';
-
-                                    if (targetMode === 'OPTION_CE' || targetMode === 'OPTION_PE') {
-                                        if (lastFetchedOptions.length > 0) {
-                                            const midOpt = lastFetchedOptions[Math.floor(lastFetchedOptions.length / 2)];
-                                            tradeSymbol = targetMode === 'OPTION_CE' ? midOpt.ceSymbol : midOpt.peSymbol;
-                                            tradePrice = targetMode === 'OPTION_CE' ? midOpt.ceLtp : midOpt.peLtp;
-                                            tradeExch = "NFO";
-                                            tradeToken = "0";
-                                            txType = 'BUY';
-                                        } else {
-                                            return;
-                                        }
-                                    }
-
-                                    fetch('/order', {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ symbol: tradeSymbol, token: tradeToken, exchange: tradeExch, transactionType: txType, quantity: parseInt(qty), productType: product, price: tradePrice, stopLoss: parseFloat(sl), trailingSl: 2.0 })
-                                    }).then(r => r.json()).then(resp => {
-                                        if(resp.status === "success") {
-                                            showToast(`[Bot] Auto Order Executed: ${txType} ${tradeSymbol}`);
-                                            addLog(`[Bot] Successfully executed automatic ${txType} order for ${tradeSymbol} at ₹${tradePrice}`);
-                                        }
-                                    });
-                                }
                             }
                         }
                     }).catch(err => {});
@@ -1033,6 +1032,29 @@ def get_live_ltp(exchange: str, symbol: str, token: str):
         resp = smart_api_obj.ltpData(exchange, symbol, token)
         if resp and resp.get("status") and resp.get("data"):
             ltp = float(resp["data"].get("ltp", 0.0))
+            
+            # --- ADVANCED BOT TREND EXECUTION TRIGGER ---
+            if bg_state.get("bot_active") and not bg_state["active_position"]:
+                signal = get_advanced_trend_signal(exchange, symbol)
+                if signal in ["BUY", "SELL"]:
+                    print(f"[Advanced Bot] Trend confirmed {signal} for {symbol} at LTP {ltp}")
+                    # Trigger automated trade based on advanced trend
+                    initial_sl = ltp - 5.0 if signal == "BUY" else ltp + 5.0
+                    order_params = {
+                        "variety": "NORMAL", "tradingsymbol": symbol, "symboltoken": token,
+                        "transactiontype": signal, "exchange": exchange, "ordertype": "MARKET",
+                        "producttype": "INTRADAY", "duration": "DAY", "price": str(ltp),
+                        "squareoff": "0", "stoploss": str(initial_sl), "quantity": "1"
+                    }
+                    order_id = smart_api_obj.placeOrder(order_params)
+                    if order_id:
+                        bg_state["active_position"] = {
+                            "symbol": symbol, "token": token, "exchange": exchange,
+                            "type": signal, "entry_price": ltp, "current_sl": initial_sl,
+                            "sl_diff": 5.0, "quantity": 1, "product_type": "INTRADAY"
+                        }
+            # ---------------------------------------------
+            
             return {"status": "success", "price": ltp}
     except Exception as e:
         print("LTP fetch error:", e)
@@ -1049,7 +1071,6 @@ async def place_live_order(data: dict):
         exchange = data.get("exchange", "NSE")
         entry_price = float(data["price"])
         sl_diff = float(data["stopLoss"])
-        tsl_jump = float(data["trailingSl"])
         tx_type = data["transactionType"]
         qty = int(data["quantity"])
         product_type = data["productType"]
@@ -1101,6 +1122,7 @@ async def connect_broker(data: dict):
         
         if session and session.get('status'):
             smart_api_obj = obj
+            bg_state["bot_active"] = True  # Enable advanced trend checking when connected
             return {"status": "success"}
         else:
             return {"status": "error", "message": "Invalid Credentials"}
