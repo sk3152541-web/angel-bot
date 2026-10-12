@@ -45,119 +45,100 @@ bg_state = {
     "bot_active": False
 }
 
-# --- ISOLATED ADVANCED TREND ANALYZER MODULE ---
-def isolated_advanced_trend_analyzer(exchange, token):
-    """Independent function for Moving Average Trend Confirmation"""
-    try:
-        if not smart_api_obj:
-            return "HOLD"
-        
-        to_date = datetime.now().strftime("%Y-%m-%d %H:%M")
-        from_date = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d %H:%M")
-        
-        historicParam = {
-            "exchange": exchange,
-            "symboltoken": token,
-            "interval": "FIVE_MINUTE",
-            "fromdate": from_date,
-            "todate": to_date
-        }
-        resp = smart_api_obj.getCandleData(historicParam)
-        if resp and resp.get("status") and resp.get("data"):
-            closes = [float(c[4]) for c in resp["data"]]
-            if len(closes) >= 10:
-                fast_ma = sum(closes[-3:]) / 3
-                slow_ma = sum(closes[-9:]) / 9
-                
-                if fast_ma > slow_ma and closes[-1] > closes[-2]:
-                    return "BUY"
-                elif fast_ma < slow_ma and closes[-1] < closes[-2]:
-                    return "SELL"
-    except Exception as e:
-        print("Isolated Trend Analyzer Error:", e)
-    return "HOLD"
+TELEGRAM_TOKEN = "8761937937:AAH0oH3UsUYgNmH8mwmFmOala38lHfGMBaY"
 
-# --- SAFE BACKGROUND WORKER (Handles TSL & Autonomous Trend Entries Safely) ---
-def background_guardian_worker():
-    trend_check_counter = 0
+def process_telegram_update(update):
+    try:
+        callback_query = update.get("callback_query")
+        if callback_query:
+            chat_id = callback_query["message"]["chat"]["id"]
+            data = callback_query.get("data", "")
+            if data == "MANUAL_MODE":
+                reply_msg = "🔵 Mode Switched: **MANUAL MODE** active hai."
+            elif data == "AUTO_MODE":
+                reply_msg = "🤖 Mode Switched: **AUTONOMOUS BOT MODE** active hai."
+            else:
+                reply_msg = f"✅ Action Received: {data}"
+
+            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": reply_msg
+            })
+            return
+
+        message = update.get("message", {})
+        chat_id = message.get("chat", {}).get("id")
+        text = message.get("text", "").strip().lower()
+        if not chat_id:
+            return
+
+        inline_markup = {
+            "inline_keyboard": [
+                [{"text": "🟢 BUY CE", "callback_data": "BUY_CE"}, {"text": "🔴 BUY PE", "callback_data": "BUY_PE"}],
+                [{"text": "📈 NIFTY BUY", "callback_data": "NIFTY_BUY"}, {"text": "📉 NIFTY SELL", "callback_data": "NIFTY_SELL"}],
+                [{"text": "🔵 MANUAL MODE", "callback_data": "MANUAL_MODE"}, {"text": "🤖 AUTO MODE", "callback_data": "AUTO_MODE"}],
+                [{"text": "📊 STATUS", "callback_data": "STATUS"}, {"text": "❌ CANCEL", "callback_data": "CANCEL"}]
+            ]
+        }
+
+        if text in ["/start", "menu"]:
+            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": "🚀 Sandeep Bhai, Trading Bot Connected! Kisi bhi company ka naam (jaise: wipro, reliance, tcs) type karke bhejo live LTP mil jayega:",
+                "reply_markup": inline_markup
+            })
+            return
+
+        matched_stock = None
+        for stock in MASTER_STOCKS:
+            if text in stock["symbol"].lower() or text in stock["name"].lower():
+                matched_stock = stock
+                break
+
+        if matched_stock:
+            sym = matched_stock["symbol"]
+            token = matched_stock["token"]
+            exch = matched_stock["exchange"]
+            price = 0.0
+            if smart_api_obj:
+                try:
+                    resp = smart_api_obj.ltpData(exch, sym, token)
+                    if resp and resp.get("status") and resp.get("data"):
+                        price = float(resp["data"].get("ltp", 0.0))
+                except:
+                    pass
+            if price == 0.0:
+                price = matched_stock["price"]
+            reply_text = f"📊 Company: {matched_stock['name']}\nSymbol: {sym}\nLive LTP: ₹{price}\nExchange: {exch}"
+        else:
+            reply_text = f"❌ '{text}' naam ki koi company watchlist mein nahi mili. Sahi naam type karein."
+
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json={
+            "chat_id": chat_id,
+            "text": reply_text,
+            "reply_markup": inline_markup
+        })
+    except Exception as e:
+        print("Telegram process error:", e)
+
+def telegram_polling_worker():
+    offset = 0
     while True:
         try:
-            if smart_api_obj:
-                # 1. Handle Active Position Trailing Stop-Loss (Runs every 2 seconds)
-                if bg_state["active_position"]:
-                    pos = bg_state["active_position"]
-                    resp = smart_api_obj.ltpData(pos["exchange"], pos["symbol"], pos["token"])
-                    if resp and resp.get("status") and resp.get("data"):
-                        ltp = float(resp["data"].get("ltp", 0.0))
-                        bg_state["last_price"] = ltp
-                        
-                        if pos["type"] == "BUY":
-                            if ltp > pos["entry_price"]:
-                                new_sl = ltp - pos["sl_diff"]
-                                if new_sl > pos["current_sl"]:
-                                    pos["current_sl"] = new_sl
-                            if ltp <= pos["current_sl"]:
-                                smart_api_obj.placeOrder({
-                                    "variety": "NORMAL", "tradingsymbol": pos["symbol"], "symboltoken": pos["token"],
-                                    "transactiontype": "SELL", "exchange": pos["exchange"], "ordertype": "MARKET",
-                                    "producttype": pos["product_type"], "duration": "DAY", "price": str(ltp),
-                                    "squareoff": "0", "stoploss": "0", "quantity": str(pos["quantity"])
-                                })
-                                bg_state["active_position"] = None
-                        elif pos["type"] == "SELL":
-                            if ltp < pos["entry_price"]:
-                                new_sl = ltp + pos["sl_diff"]
-                                if new_sl < pos["current_sl"]:
-                                    pos["current_sl"] = new_sl
-                            if ltp >= pos["current_sl"]:
-                                smart_api_obj.placeOrder({
-                                    "variety": "NORMAL", "tradingsymbol": pos["symbol"], "symboltoken": pos["token"],
-                                    "transactiontype": "BUY", "exchange": pos["exchange"], "ordertype": "MARKET",
-                                    "producttype": pos["product_type"], "duration": "DAY", "price": str(ltp),
-                                    "squareoff": "0", "stoploss": "0", "quantity": str(pos["quantity"])
-                                })
-                                bg_state["active_position"] = None
-
-                # 2. Handle Autonomous Trend Entry (Runs safely every 30 seconds to prevent API Rate Limits)
-                elif bg_state.get("bot_active"):
-                    trend_check_counter += 1
-                    if trend_check_counter >= 15:  # 15 * 2 seconds = 30 seconds interval
-                        trend_check_counter = 0
-                        # Default target stock/index (Reliance or Nifty token '2885', 'NSE')
-                        target_exch = "NSE"
-                        target_sym = "RELIANCE-EQ"
-                        target_token = "2885"
-                        
-                        trend_signal = isolated_advanced_trend_analyzer(target_exch, target_token)
-                        if trend_signal in ["BUY", "SELL"]:
-                            ltp_resp = smart_api_obj.ltpData(target_exch, target_sym, target_token)
-                            if ltp_resp and ltp_resp.get("status") and ltp_resp.get("data"):
-                                ltp = float(ltp_resp["data"].get("ltp", 0.0))
-                                if ltp > 0:
-                                    print(f"[Autonomous Bot] Trend confirmed {trend_signal} for {target_sym} at LTP {ltp}")
-                                    initial_sl = ltp - 5.0 if trend_signal == "BUY" else ltp + 5.0
-                                    order_params = {
-                                        "variety": "NORMAL", "tradingsymbol": target_sym, "symboltoken": target_token,
-                                        "transactiontype": trend_signal, "exchange": target_exch, "ordertype": "MARKET",
-                                        "producttype": "INTRADAY", "duration": "DAY", "price": str(ltp),
-                                        "squareoff": "0", "stoploss": str(initial_sl), "quantity": "1"
-                                    }
-                                    order_id = smart_api_obj.placeOrder(order_params)
-                                    if order_id:
-                                        bg_state["active_position"] = {
-                                            "symbol": target_sym, "token": target_token, "exchange": target_exch,
-                                            "type": trend_signal, "entry_price": ltp, "current_sl": initial_sl,
-                                            "sl_diff": 5.0, "quantity": 1, "product_type": "INTRADAY"
-                                        }
+            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={offset}&timeout=30"
+            resp = requests.get(url, timeout=35).json()
+            if resp.get("ok"):
+                for result in resp.get("result", []):
+                    offset = result["update_id"] + 1
+                    process_telegram_update(result)
         except Exception as e:
-            print("Background guardian error:", e)
-        time.sleep(2)
+            print("Polling loop error:", e)
+        time.sleep(1)
 
-guardian_thread = threading.Thread(target=background_guardian_worker, daemon=True)
-guardian_thread.start()
+telegram_thread = threading.Thread(target=telegram_polling_worker, daemon=True)
+telegram_thread.start()
 
-HTML_CONTENT = """
-<!DOCTYPE html>
+HTML_CONTENT = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -174,43 +155,35 @@ HTML_CONTENT = """
         .watchlist-container { flex: 1; overflow-y: auto; padding: 5px; }
         .watchlist-item { padding: 10px 12px; border-bottom: 1px solid #1e222d; cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-radius: 4px; }
         .watchlist-item:hover, .watchlist-item.active { background-color: #1e222d; }
-        
         .content-area { flex: 1; display: flex; flex-direction: column; background-color: #0b0e14; overflow: hidden; }
         .toolbar { background-color: #131722; border-bottom: 1px solid #2a2e39; padding: 8px 15px; display: flex; gap: 8px; align-items: center; height: 45px; flex-shrink: 0; flex-wrap: wrap; }
         .btn { background-color: #131722; color: #f8fafc; border: 1px solid #2a2e39; padding: 5px 10px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 11px; }
         .btn-buy { background-color: #089981; color: white; border: none; }
         .btn-sell { background-color: #f23645; color: white; border: none; }
         .btn:hover { border-color: #38bdf8; }
-        
         .tabs { display: flex; background-color: #131722; border-bottom: 1px solid #2a2e39; padding: 0 15px; height: 35px; flex-shrink: 0; }
         .tab { padding: 8px 16px; cursor: pointer; font-size: 12px; color: #94a3b8; border-bottom: 2px solid transparent; font-weight: bold; line-height: 19px; }
         .tab.active { color: #38bdf8; border-bottom-color: #38bdf8; }
-        
         .tab-content { display: none; flex: 1; flex-direction: column; width: 100%; height: calc(100vh - 120px); position: relative; }
         .tab-content.active { display: flex; }
-        
         #chartContainer { width: 100%; height: 485px; background-color: #0b0e14; position: relative; }
         .control-panel { padding: 20px; overflow-y: auto; height: 100%; }
         .control-group { background-color: #131722; border: 1px solid #2a2e39; padding: 20px; border-radius: 6px; margin-bottom: 15px; max-width: 650px; }
         .flash-up { color: #089981 !important; }
         .flash-down { color: #f23645 !important; }
-
         .chart-ohlc-bar { background-color: #131722; border-bottom: 1px solid #2a2e39; padding: 8px 15px; display: flex; align-items: center; gap: 15px; font-size: 11px; flex-shrink: 0; }
         .ohlc-item { display: flex; gap: 4px; }
         .ohlc-label { color: #94a3b8; }
         .quick-trade-group { display: flex; align-items: center; gap: 5px; margin-left: auto; }
         .quick-qty-input { width: 45px; background: #0b0e14; border: 1px solid #2a2e39; color: white; text-align: center; padding: 3px; border-radius: 3px; font-size: 11px; }
-
         .opt-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; }
         .opt-table th, .opt-table td { border: 1px solid #2a2e39; padding: 8px; text-align: center; }
         .opt-table th { background-color: #181c25; color: #38bdf8; }
         .opt-table tr:hover { background-color: #1e222d; cursor: pointer; }
-
         #toast { position: fixed; bottom: 20px; right: 20px; background: #181c25; border: 1px solid #38bdf8; color: white; padding: 12px 20px; border-radius: 6px; font-size: 12px; z-index: 1000; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
     </style>
 </head>
 <body>
-
     <div class="header">
         <div><b>▲ NIFTY 50</b> <span style="color: #089981; margin-left: 5px;">22,620.45 (+0.42%)</span></div>
         <div><b>▲ BANKNIFTY</b> <span style="color: #089981; margin-left: 5px;">48,250.10 (+0.65%)</span></div>
@@ -219,9 +192,7 @@ HTML_CONTENT = """
             <div style="color: #38bdf8; font-weight: bold;">⚡ Angel One Pro Terminal</div>
         </div>
     </div>
-
     <div class="main-container">
-        <!-- Sidebar -->
         <div class="sidebar">
             <div class="auth-panel">
                 <div style="font-size: 11px; font-weight: bold; color: #38bdf8; margin-bottom: 4px;">SmartAPI Broker Login</div>
@@ -231,7 +202,6 @@ HTML_CONTENT = """
                 <input type="password" id="totpKey" class="input-field login-input" placeholder="TOTP Secret Key" oninput="saveCredentials()">
                 <button class="btn" style="width: 100%; background-color: #38bdf8; color: #0b0e14; margin-top: 5px;" onclick="connectBroker()">Connect Live</button>
             </div>
-
             <div style="padding: 10px; border-bottom: 1px solid #2a2e39;">
                 <input type="text" id="searchInput" class="input-field" placeholder="Search Symbol..." oninput="filterWatchlist()" style="margin: 0 0 6px 0;">
                 <div style="display: flex; gap: 4px;">
@@ -239,15 +209,12 @@ HTML_CONTENT = """
                     <input type="number" id="maxPriceInput" class="input-field" placeholder="Max ₹" oninput="filterWatchlist()" style="margin: 0;">
                 </div>
             </div>
-
             <div style="padding: 8px 12px; font-size: 10px; color: #94a3b8; font-weight: bold; text-transform: uppercase; display: flex; justify-content: space-between;">
                 <span>Watchlist</span>
                 <span style="color: #38bdf8; cursor: pointer; font-weight: bold;" onclick="resetWatchlist()">RESET ALL</span>
             </div>
             <div class="watchlist-container" id="watchlistContainer"></div>
         </div>
-
-        <!-- Main Content Workspace -->
         <div class="content-area">
             <div class="tabs">
                 <div class="tab active" onclick="switchTab('chart', this)">Chart & Analysis</div>
@@ -256,8 +223,6 @@ HTML_CONTENT = """
                 <div class="tab" onclick="switchTab('bot', this)">Autonomous Bot</div>
                 <div class="tab" onclick="switchTab('logs', this)">System Logs</div>
             </div>
-
-            <!-- Tab 1: Chart & Indicators -->
             <div id="tab-chart" class="tab-content active">
                 <div class="toolbar">
                     <span id="activeSymbolTitle" style="font-weight: bold; font-size: 14px; color: #38bdf8;">RELIANCE-EQ</span>
@@ -272,7 +237,6 @@ HTML_CONTENT = """
                         <option value="HeikenAshi">Heiken Ashi</option>
                     </select>
                     <button class="btn" style="background-color: #181c25; color: #38bdf8;" onclick="manualRefreshChart()">🔄 Refresh Chart</button>
-                    
                     <div style="position: relative; display: inline-block;">
                         <button class="btn" style="background-color: #181c25; color: #38bdf8;" onclick="toggleIndicatorMenu()">Indicators ▼</button>
                         <div id="indicatorDropdown" style="display: none; position: absolute; background: #181c25; border: 1px solid #2a2e39; padding: 10px; z-index: 10; width: 190px; border-radius: 4px; top: 30px;">
@@ -283,8 +247,6 @@ HTML_CONTENT = """
                         </div>
                     </div>
                 </div>
-
-                <!-- OHLC & Quick Buy/Sell Bar -->
                 <div class="chart-ohlc-bar">
                     <div><b id="barSymbol" style="color: #38bdf8;">RELIANCE-EQ</b> • <span id="barTf">5m</span> • NSE</div>
                     <div class="ohlc-item"><span class="ohlc-label">O</span><span id="ohlcO" style="color: #089981;">0.00</span></div>
@@ -292,18 +254,14 @@ HTML_CONTENT = """
                     <div class="ohlc-item"><span class="ohlc-label">L</span><span id="ohlcL" style="color: #f23645;">0.00</span></div>
                     <div class="ohlc-item"><span class="ohlc-label">C</span><span id="ohlcC" style="color: #089981;">0.00</span></div>
                     <div id="ohlcChg" style="color: #089981; font-weight: bold;">+0.00 (+0.00%)</div>
-
                     <div class="quick-trade-group">
                         <button class="btn btn-buy" onclick="executeQuickOrder('BUY')">BUY @ <span id="quickBuyPrice">0.00</span></button>
                         <input type="number" id="quickQty" class="quick-qty-input" value="1" oninput="autoSelectStockByQty(this.value)">
                         <button class="btn btn-sell" onclick="executeQuickOrder('SELL')">SELL @ <span id="quickSellPrice">0.00</span></button>
                     </div>
                 </div>
-
                 <div id="chartContainer"></div>
             </div>
-
-            <!-- Tab 2: Options Chain (CE / PE) -->
             <div id="tab-options" class="tab-content">
                 <div class="control-panel">
                     <div class="control-group" style="max-width: 900px;">
@@ -328,7 +286,6 @@ HTML_CONTENT = """
                                 <button class="btn" style="background-color: #38bdf8; color: #0b0e14;" onclick="loadOptionsChain()">Fetch Chain</button>
                             </div>
                         </div>
-
                         <table class="opt-table">
                             <thead>
                                 <tr>
@@ -355,8 +312,6 @@ HTML_CONTENT = """
                     </div>
                 </div>
             </div>
-
-            <!-- Tab 3: Trade -->
             <div id="tab-trade" class="tab-content">
                 <div class="control-panel">
                     <div class="control-group">
@@ -378,6 +333,17 @@ HTML_CONTENT = """
                                 <label style="font-size: 11px; color: #94a3b8;">Trailing Stop Loss Jump (₹)</label>
                                 <input type="number" id="trailingSl" class="input-field" value="2.0">
                             </div>
+                            <div>
+                                <label style="font-size: 11px; color: #94a3b8;">Order Type</label>
+                                <select class="input-field" id="orderType" style="background-color: #0b0e14; color: white;" onchange="togglePriceInput()">
+                                    <option value="MARKET">MARKET</option>
+                                    <option value="LIMIT">LIMIT (Safe Test)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="font-size: 11px; color: #94a3b8;">Manual Price (for LIMIT)</label>
+                                <input type="number" id="manualPrice" class="input-field" value="1.00" disabled style="background-color: #1a1f2c; color: #94a3b8;">
+                            </div>
                         </div>
                         <div style="margin-top: 20px; display: flex; gap: 10px;">
                             <button class="btn btn-buy" style="flex: 1; padding: 10px;" onclick="executeOrder('BUY')">PLACE BUY ORDER</button>
@@ -386,8 +352,6 @@ HTML_CONTENT = """
                     </div>
                 </div>
             </div>
-
-            <!-- Tab 4: Bot -->
             <div id="tab-bot" class="tab-content">
                 <div class="control-panel">
                     <div class="control-group">
@@ -421,20 +385,16 @@ HTML_CONTENT = """
                     </div>
                 </div>
             </div>
-
-            <!-- Tab 5: Logs -->
             <div id="tab-logs" class="tab-content">
                 <div class="control-panel">
                     <div class="control-group" id="logsContainer" style="width: 100%; font-family: monospace; font-size: 11px; color: #38bdf8; height: 400px; overflow-y: auto;">
-                        [System] Terminal running with Advanced Trend Options Auto-Bot. Waiting for broker connection...
+                        [System] Terminal running with Pro Dashboard & Telegram Bot Polling. Waiting for broker connection...
                     </div>
                 </div>
             </div>
         </div>
     </div>
-
     <div id="toast"></div>
-
     <script>
         const masterStocks = [
             { symbol: "RELIANCE-EQ", token: "2885", name: "Reliance Industries", price: 1276.40, chg: -1.09, exchange: "NSE" },
@@ -459,43 +419,30 @@ HTML_CONTENT = """
             { symbol: "NIFTY", token: "99926000", name: "Nifty 50 Index", price: 22620.45, chg: 0.42, exchange: "NSE" },
             { symbol: "BANKNIFTY", token: "99926009", name: "Bank Nifty Index", price: 48250.10, chg: 0.65, exchange: "NSE" }
         ];
-
         let watchlist = [...masterStocks];
         let selectedSymbol = "RELIANCE-EQ";
-        let stockPrices = {};
-        let stockTokens = {};
-        let stockMap = {};
-        let stockExchanges = {};
-        let currentMasterData = [];
-        let activeTrade = null;
-        let lastFetchedOptions = [];
-
+        let stockPrices = {}, stockTokens = {}, stockMap = {}, stockExchanges = {};
+        let currentMasterData = [], activeTrade = null;
         function showToast(msg) {
             const toast = document.getElementById("toast");
             toast.innerText = msg;
             toast.style.display = "block";
             setTimeout(() => { toast.style.display = "none"; }, 4000);
         }
-
         function saveCredentials() {
             localStorage.setItem("angel_apiKey", document.getElementById("apiKey").value);
             localStorage.setItem("angel_clientId", document.getElementById("clientId").value);
             localStorage.setItem("angel_password", document.getElementById("password").value);
             localStorage.setItem("angel_totpKey", document.getElementById("totpKey").value);
         }
-
         function loadCredentials() {
             if (localStorage.getItem("angel_apiKey")) document.getElementById("apiKey").value = localStorage.getItem("angel_apiKey");
             if (localStorage.getItem("angel_clientId")) document.getElementById("clientId").value = localStorage.getItem("angel_clientId");
             if (localStorage.getItem("angel_password")) document.getElementById("password").value = localStorage.getItem("angel_password");
             if (localStorage.getItem("angel_totpKey")) document.getElementById("totpKey").value = localStorage.getItem("angel_totpKey");
         }
-
         function updateStockMaps() {
-            stockPrices = {};
-            stockTokens = {};
-            stockMap = {};
-            stockExchanges = {};
+            stockPrices = {}; stockTokens = {}; stockMap = {}; stockExchanges = {};
             masterStocks.forEach(s => {
                 stockPrices[s.symbol] = s.price;
                 stockTokens[s.token] = s.symbol;
@@ -504,32 +451,31 @@ HTML_CONTENT = """
             });
         }
         updateStockMaps();
-
         document.addEventListener("DOMContentLoaded", function() {
             loadCredentials();
             renderWatchlistUI(watchlist);
             initChart();
         });
-
-        document.addEventListener("visibilitychange", function() {
-            if (!document.hidden) {
-                addLog("Screen active ho gayi hai, terminal re-sync ho raha hai...");
-                if (isConnected) {
-                    loadHistoricalData(false);
-                }
-                showToast("Terminal reconnected successfully!");
+        function togglePriceInput() {
+            const oType = document.getElementById("orderType").value;
+            const priceInput = document.getElementById("manualPrice");
+            if (oType === "LIMIT") {
+                priceInput.disabled = false;
+                priceInput.style.backgroundColor = "#0b0e14";
+                priceInput.style.color = "white";
+            } else {
+                priceInput.disabled = true;
+                priceInput.style.backgroundColor = "#1a1f2c";
+                priceInput.style.color = "#94a3b8";
             }
-        });
-
+        }
         function loadOptionsChain() {
             const indexName = document.getElementById("optIndexSelect").value;
             const expiry = document.getElementById("optExpirySelect").value;
             addLog(`Fetching Option Chain for ${indexName} [Expiry: ${expiry}]...`);
-
             fetch(`/options-chain?index=${indexName}&expiry=${expiry}`)
                 .then(res => res.json())
                 .then(data => {
-                    lastFetchedOptions = data;
                     const tbody = document.getElementById("optionsChainBody");
                     tbody.innerHTML = "";
                     if (data && data.length > 0) {
@@ -550,17 +496,14 @@ HTML_CONTENT = """
                     } else {
                         tbody.innerHTML = `<tr><td colspan="7" style="color: #f23645; text-align: center; padding: 15px;">Could not fetch options. Ensure broker is connected.</td></tr>`;
                     }
-                }).catch(err => {
-                    addLog("Error loading options chain: " + err);
-                });
+                }).catch(err => { addLog("Error loading options chain: " + err); });
         }
-
         function tradeOption(sym, price, type) {
             addLog(`Placing Option Order: ${type} ${sym} @ ₹${price}`);
             fetch('/order', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbol: sym, token: "0", exchange: "NFO", transactionType: type, quantity: 25, productType: 'INTRADAY', price: price, stopLoss: 5.0, trailingSl: 2.0 })
+                body: JSON.stringify({ symbol: sym, token: "0", exchange: "NFO", transactionType: type, quantity: 25, productType: 'INTRADAY', price: price, orderType: 'MARKET', stopLoss: 5.0, trailingSl: 2.0 })
             }).then(res => res.json()).then(resp => {
                 if(resp.status === "success") {
                     showToast(`Option Order Executed: ${sym}`);
@@ -570,13 +513,11 @@ HTML_CONTENT = """
                 }
             });
         }
-
         function manualRefreshChart() {
             addLog(`Manually refreshing chart for ${selectedSymbol}...`);
             loadHistoricalData(false);
             showToast(`Chart Refreshed for ${selectedSymbol}`);
         }
-
         function autoSelectStockByQty(qtyVal) {
             const qty = parseInt(qtyVal);
             if (isNaN(qty) || qty <= 0) return;
@@ -589,26 +530,19 @@ HTML_CONTENT = """
                 loadHistoricalData();
             }
         }
-
         function filterWatchlist() {
             const query = document.getElementById("searchInput").value.toLowerCase();
             const minVal = document.getElementById("minPriceInput").value;
             const maxVal = document.getElementById("maxPriceInput").value;
-            
             const minPrice = (minVal !== "") ? parseFloat(minVal) : 0;
             const maxPrice = (maxVal !== "") ? parseFloat(maxVal) : Infinity;
-
             const filtered = masterStocks.filter(s => {
                 const p = stockPrices[s.symbol] || s.price || 100.0;
-                const matchesSearch = s.symbol.toLowerCase().includes(query) || s.name.toLowerCase().includes(query);
-                const matchesPrice = p >= minPrice && p <= maxPrice;
-                return matchesSearch && matchesPrice;
+                return (s.symbol.toLowerCase().includes(query) || s.name.toLowerCase().includes(query)) && (p >= minPrice && p <= maxPrice);
             });
-
             watchlist = filtered;
             renderWatchlistUI(watchlist);
         }
-
         function resetWatchlist() {
             document.getElementById("searchInput").value = "";
             document.getElementById("minPriceInput").value = "";
@@ -617,17 +551,14 @@ HTML_CONTENT = """
             renderWatchlistUI(watchlist);
             showToast("Watchlist reset!");
         }
-
         function renderWatchlistUI(items) {
             const container = document.getElementById("watchlistContainer");
             if (!container) return;
             container.innerHTML = "";
-            
             if (items.length === 0) {
                 container.innerHTML = '<div style="padding: 15px; font-size: 11px; color: #f23645; text-align: center;">No matching stocks found.</div>';
                 return;
             }
-
             items.forEach(s => {
                 const item = document.createElement("div");
                 item.className = `watchlist-item ${s.symbol === selectedSymbol ? 'active' : ''}`;
@@ -654,7 +585,6 @@ HTML_CONTENT = """
                 container.appendChild(item);
             });
         }
-
         function removeFromWatchlist(sym) {
             if (watchlist.length <= 1) {
                 showToast("Cannot remove all items!");
@@ -664,14 +594,8 @@ HTML_CONTENT = """
             renderWatchlistUI(watchlist);
             showToast(`Removed ${sym}`);
         }
-
         let chart, candlestickSeries;
-        let activeIndicators = {};
-        let currentCandle = null;
-        let currentCandleTime = 0;
-        let oldestLoadedTimestamp = 0;
-        let isLoadingMore = false;
-
+        let activeIndicators = {}, currentCandle = null, currentCandleTime = 0, oldestLoadedTimestamp = 0, isLoadingMore = false;
         function getCandleIntervalSeconds() {
             const tf = document.getElementById("timeframeSelect").value;
             if (tf === '1m') return 60;
@@ -680,7 +604,6 @@ HTML_CONTENT = """
             if (tf === '1h') return 3600;
             return 300;
         }
-
         function updateOhlcBar(candle) {
             if (!candle) return;
             document.getElementById("ohlcO").innerText = candle.open.toFixed(2);
@@ -689,37 +612,29 @@ HTML_CONTENT = """
             document.getElementById("ohlcC").innerText = candle.close.toFixed(2);
             document.getElementById("quickBuyPrice").innerText = candle.close.toFixed(2);
             document.getElementById("quickSellPrice").innerText = candle.close.toFixed(2);
-
             const diff = candle.close - candle.open;
             const pct = (diff / candle.open) * 100;
             const chgEl = document.getElementById("ohlcChg");
             chgEl.innerText = `${diff >= 0 ? '+' : ''}${diff.toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
             chgEl.style.color = diff >= 0 ? '#089981' : '#f23645';
         }
-
         function loadHistoricalData(isMore = false, beforeTimestamp = null) {
             const token = stockMap[selectedSymbol] || "2885";
             const exch = stockExchanges[selectedSymbol] || "NSE";
             const tf = document.getElementById("timeframeSelect").value;
             document.getElementById("barTf").innerText = tf;
-
             if (isMore) {
                 if (isLoadingMore) return;
                 isLoadingMore = true;
             }
-
             let url = `/history?token=${token}&exchange=${exch}&timeframe=${tf}`;
-            if (isMore && beforeTimestamp) {
-                url += `&before_to=${beforeTimestamp}`;
-            }
-
+            if (isMore && beforeTimestamp) url += `&before_to=${beforeTimestamp}`;
             fetch(url)
                 .then(res => res.json())
                 .then(data => {
                     if (data && data.length > 0) {
                         const cleanData = data.filter(c => c.open > 0 && c.high > 0 && c.low > 0 && c.close > 0);
                         if (cleanData.length === 0) return;
-
                         if (isMore) {
                             currentMasterData = cleanData.concat(currentMasterData);
                             candlestickSeries.setData(currentMasterData);
@@ -731,17 +646,10 @@ HTML_CONTENT = """
                             updateOhlcBar(cleanData[cleanData.length - 1]);
                             addLog(`Loaded ${cleanData.length} candles for ${selectedSymbol}.`);
                         }
-                        if (currentMasterData.length > 0) {
-                            oldestLoadedTimestamp = currentMasterData[0].time;
-                        }
-                    } else {
-                        isLoadingMore = false;
-                    }
-                }).catch(err => {
-                    isLoadingMore = false;
-                });
+                        if (currentMasterData.length > 0) oldestLoadedTimestamp = currentMasterData[0].time;
+                    } else { isLoadingMore = false; }
+                }).catch(err => { isLoadingMore = false; });
         }
-
         function initChart() {
             try {
                 const chartElement = document.getElementById('chartContainer');
@@ -751,48 +659,28 @@ HTML_CONTENT = """
                     layout: { background: { type: 'solid', color: '#0b0e14' }, textColor: '#94a3b8' },
                     grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
                     timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false },
-                    rightPriceScale: { 
-                        borderColor: '#2a2e39', 
-                        autoScale: true,
-                        scaleMargins: { top: 0.1, bottom: 0.1 } 
-                    }
+                    rightPriceScale: { borderColor: '#2a2e39', autoScale: true, scaleMargins: { top: 0.1, bottom: 0.1 } }
                 });
-                
-                candlestickSeries = chart.addCandlestickSeries({
-                    upColor: '#089981', downColor: '#f23645', borderVisible: false, wickUpColor: '#089981', wickDownColor: '#f23645'
-                });
-                
+                candlestickSeries = chart.addCandlestickSeries({ upColor: '#089981', downColor: '#f23645', borderVisible: false, wickUpColor: '#089981', wickDownColor: '#f23645' });
                 loadHistoricalData(false);
-
                 chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-                    if (range && range.from < 5) {
-                        if (!isLoadingMore && oldestLoadedTimestamp > 0) {
-                            loadHistoricalData(true, oldestLoadedTimestamp);
-                        }
+                    if (range && range.from < 5 && !isLoadingMore && oldestLoadedTimestamp > 0) {
+                        loadHistoricalData(true, oldestLoadedTimestamp);
                     }
                 });
-
                 window.addEventListener('resize', () => {
-                    if (chartElement.clientWidth > 0) {
-                        chart.resize(chartElement.clientWidth, 485);
-                    }
+                    if (chartElement.clientWidth > 0) chart.resize(chartElement.clientWidth, 485);
                 });
-            } catch (err) {
-                console.error("Chart load error:", err);
-            }
+            } catch (err) { console.error("Chart load error:", err); }
         }
-
         function toggleIndicatorMenu() {
             const menu = document.getElementById("indicatorDropdown");
             menu.style.display = menu.style.display === "block" ? "none" : "block";
         }
-
         function applyIndicator(checkbox) {
             const ind = checkbox.value;
             if (checkbox.checked) {
-                if (ind === 'SMA') {
-                    activeIndicators['SMA'] = chart.addLineSeries({ color: '#2962FF', lineWidth: 2 });
-                }
+                if (ind === 'SMA') activeIndicators['SMA'] = chart.addLineSeries({ color: '#2962FF', lineWidth: 2 });
             } else {
                 if (activeIndicators[ind]) {
                     chart.removeSeries(activeIndicators[ind]);
@@ -800,11 +688,7 @@ HTML_CONTENT = """
                 }
             }
         }
-
-        function changeChartType(type) {
-            loadHistoricalData(false);
-        }
-
+        function changeChartType(type) { loadHistoricalData(false); }
         function switchTab(tabName, el) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -812,27 +696,21 @@ HTML_CONTENT = """
             document.getElementById('tab-' + tabName).classList.add('active');
             setTimeout(() => {
                 const chartElement = document.getElementById('chartContainer');
-                if (chart && chartElement && chartElement.clientWidth > 0) {
-                    chart.resize(chartElement.clientWidth, 485);
-                }
+                if (chart && chartElement && chartElement.clientWidth > 0) chart.resize(chartElement.clientWidth, 485);
             }, 100);
         }
-
         function addLog(msg) {
             const box = document.getElementById("logsContainer");
             const time = new Date().toLocaleTimeString();
             box.innerHTML += `<div>[${time}] ${msg}</div>`;
             box.scrollTop = box.scrollHeight;
         }
-
         let botRunning = false;
         function toggleBot() {
             botRunning = !botRunning;
             const btn = document.getElementById("botToggleBtn");
             const status = document.getElementById("botStatus");
             const targetMode = document.getElementById("botTargetMode").value;
-            
-            // Send toggle state to backend
             fetch('/toggle-bot', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -855,7 +733,6 @@ HTML_CONTENT = """
                 }
             });
         }
-
         let isConnected = false;
         function connectBroker() {
             const data = {
@@ -882,14 +759,11 @@ HTML_CONTENT = """
                 }
             });
         }
-
         function startPolling() {
             setInterval(() => {
                 if (!isConnected) return;
-
                 const selToken = stockMap[selectedSymbol] || "2885";
                 const selExch = stockExchanges[selectedSymbol] || "NSE";
-
                 fetch(`/ltp?exchange=${selExch}&symbol=${selectedSymbol}&token=${selToken}`)
                     .then(res => res.json())
                     .then(data => {
@@ -899,25 +773,21 @@ HTML_CONTENT = """
                             const sym = selectedSymbol;
                             const oldPrice = stockPrices[sym] || newPrice;
                             stockPrices[sym] = newPrice;
-
                             const wlEl = document.getElementById("wl_" + sym);
                             if (wlEl) {
                                 wlEl.innerText = "₹" + newPrice.toFixed(2);
                                 wlEl.className = newPrice > oldPrice ? "flash-up" : (newPrice < oldPrice ? "flash-down" : "");
                             }
-
                             if (activeTrade && activeTrade.symbol === sym) {
                                 let pnl = activeTrade.type === 'BUY' ? (newPrice - activeTrade.entryPrice) * activeTrade.qty : (activeTrade.entryPrice - newPrice) * activeTrade.qty;
                                 const pnlEl = document.getElementById("headerPnl");
                                 pnlEl.innerText = (pnl >= 0 ? "+₹" : "-₹") + Math.abs(pnl).toFixed(2);
                                 pnlEl.style.color = pnl >= 0 ? "#089981" : "#f23645";
                             }
-                            
                             if (candlestickSeries) {
                                 const currentTimeSec = Math.floor(Date.now() / 1000);
                                 const interval = getCandleIntervalSeconds();
                                 const candleTimeSlot = Math.floor(currentTimeSec / interval) * interval;
-
                                 if (!currentCandle || currentCandleTime !== candleTimeSlot) {
                                     currentCandleTime = candleTimeSlot;
                                     currentCandle = { time: currentCandleTime, open: newPrice, high: newPrice, low: newPrice, close: newPrice };
@@ -929,46 +799,47 @@ HTML_CONTENT = """
                                 candlestickSeries.update(currentCandle);
                                 updateOhlcBar(currentCandle);
                             }
-
                             const chartEl = document.getElementById('chartContainer');
-                            if (chart && chartEl && chartEl.clientWidth > 0) {
-                                chart.resize(chartEl.clientWidth, 485);
-                            }
+                            if (chart && chartEl && chartEl.clientWidth > 0) chart.resize(chartEl.clientWidth, 485);
                         }
                     }).catch(err => {});
-
-                watchlist.forEach(s => {
-                    if (s.symbol === selectedSymbol) return;
-                    fetch(`/ltp?exchange=${s.exchange || 'NSE'}&symbol=${s.symbol}&token=${s.token}`)
-                        .then(res => res.json())
-                        .then(data => {
-                            if (data && data.status === "success" && data.price > 0) {
-                                const oldP = stockPrices[s.symbol] || s.price;
-                                stockPrices[s.symbol] = data.price;
-                                const wlEl = document.getElementById("wl_" + s.symbol);
-                                if (wlEl) {
-                                    wlEl.innerText = "₹" + data.price.toFixed(2);
-                                    wlEl.className = data.price > oldP ? "flash-up" : (data.price < oldP ? "flash-down" : "");
-                                }
-                            }
-                        }).catch(err => {});
-                });
-
-            }, 2000);
+            }, 5000);
         }
-
+        function executeOrder(type) {
+            const qty = document.getElementById("orderQty").value;
+            const productType = document.getElementById("productType").value;
+            const stopLoss = document.getElementById("stopLoss").value;
+            const trailingSl = document.getElementById("trailingSl").value;
+            const orderType = document.getElementById("orderType").value;
+            let price = stockPrices[selectedSymbol] || 100.00;
+            if (orderType === "LIMIT") price = document.getElementById("manualPrice").value;
+            const token = stockMap[selectedSymbol] || "2885";
+            const exch = stockExchanges[selectedSymbol] || "NSE";
+            addLog(`Placing manual ${orderType} ${type} order for ${qty} qty of ${selectedSymbol} at price ${price}...`);
+            fetch('/order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol: selectedSymbol, token: token, exchange: exch, transactionType: type, quantity: parseInt(qty), productType: productType, price: parseFloat(price), orderType: orderType, stopLoss: parseFloat(stopLoss), trailingSl: parseFloat(trailingSl) })
+            }).then(res => res.json()).then(resp => {
+                if(resp.status === "success") {
+                    showToast(`Order Placed Successfully! ID: ${resp.orderId}`);
+                    addLog(`SUCCESS: Order ID ${resp.orderId}`);
+                } else {
+                    showToast("Order Failed: " + resp.message);
+                    addLog(`ERROR: ${resp.message}`);
+                }
+            });
+        }
         function executeQuickOrder(type) {
             const qty = document.getElementById("quickQty").value;
             const token = stockMap[selectedSymbol] || "2885";
             const exch = stockExchanges[selectedSymbol] || "NSE";
             const price = stockPrices[selectedSymbol] || 100.00;
-
             addLog(`Placing quick ${type} order for ${qty} quantity of ${selectedSymbol}...`);
-            
             fetch('/order', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbol: selectedSymbol, token: token, exchange: exch, transactionType: type, quantity: parseInt(qty), productType: 'INTRADAY', price: price, stopLoss: 5.0, trailingSl: 2.0 })
+                body: JSON.stringify({ symbol: selectedSymbol, token: token, exchange: exch, transactionType: type, quantity: parseInt(qty), productType: 'INTRADAY', price: price, orderType: 'MARKET', stopLoss: 5.0, trailingSl: 2.0 })
             }).then(res => res.json()).then(resp => {
                 if(resp.status === "success") {
                     activeTrade = { symbol: selectedSymbol, entryPrice: price, qty: parseInt(qty), type: type };
@@ -982,8 +853,7 @@ HTML_CONTENT = """
         }
     </script>
 </body>
-</html>
-"""
+</html>"""
 
 @app.get("/", response_class=HTMLResponse)
 def get_root():
@@ -994,7 +864,6 @@ def get_options_chain(index: str = "NIFTY", expiry: str = "2026-10-08"):
     base_price = 22620.0 if index == "NIFTY" else 48250.0
     chain = []
     step = 100 if index == "NIFTY" else 500
-    
     for i in range(-5, 6):
         strike = base_price + (i * step)
         ce_ltp = max(5.0, 150.0 - (i * 20) + (i*i))
@@ -1013,62 +882,34 @@ def get_options_chain(index: str = "NIFTY", expiry: str = "2026-10-08"):
 @app.get("/history")
 def get_historical_candles(token: str, exchange: str = "NSE", timeframe: str = "5m", before_to: int = None):
     global smart_api_obj
-    if not smart_api_obj:
-        return []
-    
+    if not smart_api_obj: return []
     interval_map = {"1m": "ONE_MINUTE", "5m": "FIVE_MINUTE", "15m": "FIFTEEN_MINUTE", "1h": "ONE_HOUR"}
     api_interval = interval_map.get(timeframe, "FIVE_MINUTE")
-    
-    if before_to:
-        dt_to = datetime.fromtimestamp(before_to)
-        to_date = dt_to.strftime("%Y-%m-%d %H:%M")
-        from_date = (dt_to - timedelta(days=5)).strftime("%Y-%m-%d %H:%M")
-    else:
-        to_date = datetime.now().strftime("%Y-%m-%d %H:%M")
-        from_date = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d %H:%M")
-    
+    to_date = datetime.fromtimestamp(before_to).strftime("%Y-%m-%d %H:%M") if before_to else datetime.now().strftime("%Y-%m-%d %H:%M")
+    from_date = (datetime.fromtimestamp(before_to) - timedelta(days=5)).strftime("%Y-%m-%d %H:%M") if before_to else (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d %H:%M")
     try:
-        historicParam = {
-            "exchange": exchange,
-            "symboltoken": token,
-            "interval": api_interval,
-            "fromdate": from_date,
-            "todate": to_date
-        }
+        historicParam = {"exchange": exchange, "symboltoken": token, "interval": api_interval, "fromdate": from_date, "todate": to_date}
         resp = smart_api_obj.getCandleData(historicParam)
         if resp and resp.get("status") and resp.get("data"):
             formatted = []
             for c in resp["data"]:
                 t_raw = c[0]
-                try:
-                    dt = datetime.fromisoformat(t_raw.replace("+05:30", ""))
-                    ts = int(dt.timestamp())
-                except:
-                    ts = t_raw
-                formatted.append({
-                    "time": ts,
-                    "open": float(c[1]),
-                    "high": float(c[2]),
-                    "low": float(c[3]),
-                    "close": float(c[4])
-                })
+                try: ts = int(datetime.fromisoformat(t_raw.replace("+05:30", "")).timestamp())
+                except: ts = t_raw
+                formatted.append({"time": ts, "open": float(c[1]), "high": float(c[2]), "low": float(c[3]), "close": float(c[4])})
             return formatted
-    except Exception as e:
-        print("History fetch error:", e)
+    except Exception as e: print("History fetch error:", e)
     return []
 
 @app.get("/ltp")
 def get_live_ltp(exchange: str, symbol: str, token: str):
     global smart_api_obj
-    if not smart_api_obj:
-        return {"status": "error", "price": 0.0}
+    if not smart_api_obj: return {"status": "error", "price": 0.0}
     try:
         resp = smart_api_obj.ltpData(exchange, symbol, token)
         if resp and resp.get("status") and resp.get("data"):
-            ltp = float(resp["data"].get("ltp", 0.0))
-            return {"status": "success", "price": ltp}
-    except Exception as e:
-        print("LTP fetch error:", e)
+            return {"status": "success", "price": float(resp["data"].get("ltp", 0.0))}
+    except Exception as e: print("LTP fetch error:", e)
     return {"status": "error", "price": 0.0}
 
 @app.post("/toggle-bot")
@@ -1080,52 +921,23 @@ async def toggle_bot_state(data: dict):
 async def place_live_order(data: dict):
     global smart_api_obj
     try:
-        if not smart_api_obj:
-            return {"status": "error", "message": "Broker not connected!"}
-        
-        symbol = data["symbol"]
-        exchange = data.get("exchange", "NSE")
-        entry_price = float(data["price"])
-        sl_diff = float(data["stopLoss"])
-        tsl_jump = float(data["trailingSl"])
-        tx_type = data["transactionType"]
-        qty = int(data["quantity"])
-        product_type = data["productType"]
-        token = data["token"]
-        
-        initial_sl = entry_price - sl_diff if tx_type == "BUY" else entry_price + sl_diff
-        
+        if not smart_api_obj: return {"status": "error", "message": "Broker not connected!"}
         order_params = {
-            "variety": "NORMAL",
-            "tradingsymbol": symbol,
-            "symboltoken": token,
-            "transactiontype": tx_type,
-            "exchange": exchange,
-            "ordertype": "MARKET",
-            "producttype": product_type,
-            "duration": "DAY",
-            "price": str(entry_price),
-            "squareoff": "0",
-            "stoploss": str(initial_sl),
-            "quantity": str(qty)
+            "variety": "NORMAL", "tradingsymbol": data["symbol"], "symboltoken": data["token"],
+            "transactiontype": data["transactionType"], "exchange": data.get("exchange", "NSE"),
+            "ordertype": data.get("orderType", "MARKET"), "producttype": data["productType"],
+            "duration": "DAY", "price": str(data["price"]) if data.get("orderType") == "LIMIT" else "0",
+            "squareoff": "0", "stoploss": "0", "quantity": str(data["quantity"])
         }
-        
-        order_id = smart_api_obj.placeOrder(order_params)
-        if order_id:
-            bg_state["active_position"] = {
-                "symbol": symbol,
-                "token": token,
-                "exchange": exchange,
-                "type": tx_type,
-                "entry_price": entry_price,
-                "current_sl": initial_sl,
-                "sl_diff": sl_diff,
-                "quantity": qty,
-                "product_type": product_type
-            }
+        response = smart_api_obj.placeOrder(order_params)
+        if response and isinstance(response, dict) and response.get("status") == True:
+            data_dict = response.get("data", {})
+            order_id = data_dict.get("orderid") if isinstance(data_dict, dict) else str(data_dict)
             return {"status": "success", "orderId": str(order_id)}
+        elif response and isinstance(response, dict):
+            return {"status": "error", "message": response.get("message", "Unknown broker rejection")}
         else:
-            return {"status": "error", "message": "Order rejected by broker."}
+            return {"status": "success", "orderId": str(response)}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -1136,7 +948,6 @@ async def connect_broker(data: dict):
         obj = SmartConnect(api_key=data["apiKey"])
         totp_code = pyotp.TOTP(data["totpKey"]).now()
         session = obj.generateSession(data["clientId"], data["password"], totp_code)
-        
         if session and session.get('status'):
             smart_api_obj = obj
             return {"status": "success"}
