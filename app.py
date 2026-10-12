@@ -14,27 +14,27 @@ import time
 app = FastAPI()
 
 MASTER_STOCKS = [
-    {"symbol": "RELIANCE-EQ", "token": "2885", "name": "Reliance Industries", "price": 1276.40, "chg": -1.09, "exchange": "NSE"},
-    {"symbol": "TCS-EQ", "token": "11536", "name": "Tata Consultancy Services", "price": 4098.30, "chg": 0.75, "exchange": "NSE"},
-    {"symbol": "HDFCBANK-EQ", "token": "1333", "name": "HDFC Bank Ltd", "price": 1650.00, "chg": 0.50, "exchange": "NSE"},
-    {"symbol": "INFY-EQ", "token": "1594", "name": "Infosys Limited", "price": 1912.50, "chg": 1.20, "exchange": "NSE"},
-    {"symbol": "ICICIBANK-EQ", "token": "4963", "name": "ICICI Bank Ltd", "price": 1120.50, "chg": 0.85, "exchange": "NSE"},
-    {"symbol": "SBIN-EQ", "token": "3045", "name": "State Bank of India", "price": 810.50, "chg": 1.1, "exchange": "NSE"},
-    {"symbol": "BHARTIARTL-EQ", "token": "10604", "name": "Bharti Airtel Ltd", "price": 1450.20, "chg": -0.4, "exchange": "NSE"},
-    {"symbol": "KOTAKBANK-EQ", "token": "1922", "name": "Kotak Mahindra Bank", "price": 1740.00, "chg": 0.3, "exchange": "NSE"},
-    {"symbol": "LT-EQ", "token": "11483", "name": "Larsen & Toubro Ltd", "price": 3650.10, "chg": 1.5, "exchange": "NSE"},
-    {"symbol": "ITC-EQ", "token": "1660", "name": "ITC Limited", "price": 430.20, "chg": 0.4, "exchange": "NSE"},
-    {"symbol": "HINDUNILVR-EQ", "token": "1394", "name": "Hindustan Unilever", "price": 2450.00, "chg": -0.2, "exchange": "NSE"},
-    {"symbol": "AXISBANK-EQ", "token": "5900", "name": "Axis Bank Ltd", "price": 1150.80, "chg": 0.6, "exchange": "NSE"},
-    {"symbol": "BAJFINANCE-EQ", "token": "317", "name": "Bajaj Finance Ltd", "price": 7100.00, "chg": 1.2, "exchange": "NSE"},
-    {"symbol": "MARUTI-EQ", "token": "10999", "name": "Maruti Suzuki India", "price": 12400.50, "chg": 0.9, "exchange": "NSE"},
-    {"symbol": "SUNPHARMA-EQ", "token": "3351", "name": "Sun Pharma Industries", "price": 1780.20, "chg": -0.7, "exchange": "NSE"},
-    {"symbol": "TITAN-EQ", "token": "3506", "name": "Titan Company Ltd", "price": 3450.00, "chg": 0.5, "exchange": "NSE"},
-    {"symbol": "ASIANPAINT-EQ", "token": "236", "name": "Asian Paints Ltd", "price": 2890.00, "chg": -1.1, "exchange": "NSE"},
-    {"symbol": "TATAMOTORS-EQ", "token": "3456", "name": "Tata Motors Ltd", "price": 980.40, "chg": 1.8, "exchange": "NSE"},
-    {"symbol": "WIPRO-EQ", "token": "3787", "name": "Wipro Limited", "price": 540.00, "chg": 0.4, "exchange": "NSE"},
-    {"symbol": "NIFTY", "token": "99926000", "name": "Nifty 50 Index", "price": 22620.45, "chg": 0.42, "exchange": "NSE"},
-    {"symbol": "BANKNIFTY", "token": "99926009", "name": "Bank Nifty Index", "price": 48250.10, "chg": 0.65, "exchange": "NSE"}
+    {"symbol": "RELIANCE-EQ", "token": "2885", "name": "Reliance Industries", "exchange": "NSE"},
+    {"symbol": "TCS-EQ", "token": "11536", "name": "Tata Consultancy Services", "exchange": "NSE"},
+    {"symbol": "HDFCBANK-EQ", "token": "1333", "name": "HDFC Bank Ltd", "exchange": "NSE"},
+    {"symbol": "INFY-EQ", "token": "1594", "name": "Infosys Limited", "exchange": "NSE"},
+    {"symbol": "ICICIBANK-EQ", "token": "4963", "name": "ICICI Bank Ltd", "exchange": "NSE"},
+    {"symbol": "SBIN-EQ", "token": "3045", "name": "State Bank of India", "exchange": "NSE"},
+    {"symbol": "BHARTIARTL-EQ", "token": "10604", "name": "Bharti Airtel Ltd", "exchange": "NSE"},
+    {"symbol": "KOTAKBANK-EQ", "token": "1922", "name": "Kotak Mahindra Bank", "exchange": "NSE"},
+    {"symbol": "LT-EQ", "token": "11483", "name": "Larsen & Toubro Ltd", "exchange": "NSE"},
+    {"symbol": "ITC-EQ", "token": "1660", "name": "ITC Limited", "exchange": "NSE"},
+    {"symbol": "HINDUNILVR-EQ", "token": "1394", "name": "Hindustan Unilever", "exchange": "NSE"},
+    {"symbol": "AXISBANK-EQ", "token": "5900", "name": "Axis Bank Ltd", "exchange": "NSE"},
+    {"symbol": "BAJFINANCE-EQ", "token": "317", "name": "Bajaj Finance Ltd", "exchange": "NSE"},
+    {"symbol": "MARUTI-EQ", "token": "10999", "name": "Maruti Suzuki India", "exchange": "NSE"},
+    {"symbol": "SUNPHARMA-EQ", "token": "3351", "name": "Sun Pharma Industries", "exchange": "NSE"},
+    {"symbol": "TITAN-EQ", "token": "3506", "name": "Titan Company Ltd", "exchange": "NSE"},
+    {"symbol": "ASIANPAINT-EQ", "token": "236", "name": "Asian Paints Ltd", "exchange": "NSE"},
+    {"symbol": "TATAMOTORS-EQ", "token": "3456", "name": "Tata Motors Ltd", "exchange": "NSE"},
+    {"symbol": "WIPRO-EQ", "token": "3787", "name": "Wipro Limited", "exchange": "NSE"},
+    {"symbol": "NIFTY", "token": "99926000", "name": "Nifty 50 Index", "exchange": "NSE"},
+    {"symbol": "BANKNIFTY", "token": "99926009", "name": "Bank Nifty Index", "exchange": "NSE"}
 ]
 
 smart_api_obj = None
@@ -99,7 +99,7 @@ def process_telegram_update(update):
             sym = matched_stock["symbol"]
             token = matched_stock["token"]
             exch = matched_stock["exchange"]
-            price = 0.0
+            price = None
             if smart_api_obj:
                 try:
                     resp = smart_api_obj.ltpData(exch, sym, token)
@@ -107,9 +107,11 @@ def process_telegram_update(update):
                         price = float(resp["data"].get("ltp", 0.0))
                 except:
                     pass
-            if price == 0.0:
-                price = matched_stock["price"]
-            reply_text = f"📊 Company: {matched_stock['name']}\nSymbol: {sym}\nLive LTP: ₹{price}\nExchange: {exch}"
+            
+            if price is not None and price > 0:
+                reply_text = f"📊 Company: {matched_stock['name']}\nSymbol: {sym}\nLive LTP: ₹{price}\nExchange: {exch}"
+            else:
+                reply_text = f"⚠️ Broker connected nahi hai ya '{sym}' ka live price fetch nahi ho paaya."
         else:
             reply_text = f"❌ '{text}' naam ki koi company watchlist mein nahi mili. Sahi naam type karein."
 
@@ -397,27 +399,27 @@ HTML_CONTENT = """<!DOCTYPE html>
     <div id="toast"></div>
     <script>
         const masterStocks = [
-            { symbol: "RELIANCE-EQ", token: "2885", name: "Reliance Industries", price: 1276.40, chg: -1.09, exchange: "NSE" },
-            { symbol: "TCS-EQ", token: "11536", name: "Tata Consultancy Services", price: 4098.30, chg: 0.75, exchange: "NSE" },
-            { symbol: "HDFCBANK-EQ", token: "1333", name: "HDFC Bank Ltd", price: 1650.00, chg: 0.50, exchange: "NSE" },
-            { symbol: "INFY-EQ", token: "1594", name: "Infosys Limited", price: 1912.50, chg: 1.20, exchange: "NSE" },
-            { symbol: "ICICIBANK-EQ", token: "4963", name: "ICICI Bank Ltd", price: 1120.50, chg: 0.85, exchange: "NSE" },
-            { symbol: "SBIN-EQ", token: "3045", name: "State Bank of India", price: 810.50, chg: 1.1, exchange: "NSE" },
-            { symbol: "BHARTIARTL-EQ", token: "10604", name: "Bharti Airtel Ltd", price: 1450.20, chg: -0.4, exchange: "NSE" },
-            { symbol: "KOTAKBANK-EQ", token: "1922", name: "Kotak Mahindra Bank", price: 1740.00, chg: 0.3, exchange: "NSE" },
-            { symbol: "LT-EQ", token: "11483", name: "Larsen & Toubro Ltd", price: 3650.10, chg: 1.5, exchange: "NSE" },
-            { symbol: "ITC-EQ", token: "1660", name: "ITC Limited", price: 430.20, chg: 0.4, exchange: "NSE" },
-            { symbol: "HINDUNILVR-EQ", token: "1394", name: "Hindustan Unilever", price: 2450.00, chg: -0.2, exchange: "NSE" },
-            { symbol: "AXISBANK-EQ", token: "5900", name: "Axis Bank Ltd", price: 1150.80, chg: 0.6, exchange: "NSE" },
-            { symbol: "BAJFINANCE-EQ", token: "317", name: "Bajaj Finance Ltd", price: 7100.00, chg: 1.2, exchange: "NSE" },
-            { symbol: "MARUTI-EQ", token: "10999", name: "Maruti Suzuki India", price: 12400.50, chg: 0.9, exchange: "NSE" },
-            { symbol: "SUNPHARMA-EQ", token: "3351", name: "Sun Pharma Industries", price: 1780.20, chg: -0.7, exchange: "NSE" },
-            { symbol: "TITAN-EQ", token: "3506", name: "Titan Company Ltd", price: 3450.00, chg: 0.5, exchange: "NSE" },
-            { symbol: "ASIANPAINT-EQ", token: "236", name: "Asian Paints Ltd", price: 2890.00, chg: -1.1, exchange: "NSE" },
-            { symbol: "TATAMOTORS-EQ", token: "3456", name: "Tata Motors Ltd", price: 980.40, chg: 1.8, exchange: "NSE" },
-            { symbol: "WIPRO-EQ", token: "3787", name: "Wipro Limited", price: 540.00, chg: 0.4, exchange: "NSE" },
-            { symbol: "NIFTY", token: "99926000", name: "Nifty 50 Index", price: 22620.45, chg: 0.42, exchange: "NSE" },
-            { symbol: "BANKNIFTY", token: "99926009", name: "Bank Nifty Index", price: 48250.10, chg: 0.65, exchange: "NSE" }
+            { symbol: "RELIANCE-EQ", token: "2885", name: "Reliance Industries", exchange: "NSE" },
+            { symbol: "TCS-EQ", token: "11536", name: "Tata Consultancy Services", exchange: "NSE" },
+            { symbol: "HDFCBANK-EQ", token: "1333", name: "HDFC Bank Ltd", exchange: "NSE" },
+            { symbol: "INFY-EQ", token: "1594", name: "Infosys Limited", exchange: "NSE" },
+            { symbol: "ICICIBANK-EQ", token: "4963", name: "ICICI Bank Ltd", exchange: "NSE" },
+            { symbol: "SBIN-EQ", token: "3045", name: "State Bank of India", exchange: "NSE" },
+            { symbol: "BHARTIARTL-EQ", token: "10604", name: "Bharti Airtel Ltd", exchange: "NSE" },
+            { symbol: "KOTAKBANK-EQ", token: "1922", name: "Kotak Mahindra Bank", exchange: "NSE" },
+            { symbol: "LT-EQ", token: "11483", name: "Larsen & Toubro Ltd", exchange: "NSE" },
+            { symbol: "ITC-EQ", token: "1660", name: "ITC Limited", exchange: "NSE" },
+            { symbol: "HINDUNILVR-EQ", token: "1394", name: "Hindustan Unilever", exchange: "NSE" },
+            { symbol: "AXISBANK-EQ", token: "5900", name: "Axis Bank Ltd", exchange: "NSE" },
+            { symbol: "BAJFINANCE-EQ", token: "317", name: "Bajaj Finance Ltd", exchange: "NSE" },
+            { symbol: "MARUTI-EQ", token: "10999", name: "Maruti Suzuki India", exchange: "NSE" },
+            { symbol: "SUNPHARMA-EQ", token: "3351", name: "Sun Pharma Industries", exchange: "NSE" },
+            { symbol: "TITAN-EQ", token: "3506", name: "Titan Company Ltd", exchange: "NSE" },
+            { symbol: "ASIANPAINT-EQ", token: "236", name: "Asian Paints Ltd", exchange: "NSE" },
+            { symbol: "TATAMOTORS-EQ", token: "3456", name: "Tata Motors Ltd", exchange: "NSE" },
+            { symbol: "WIPRO-EQ", token: "3787", name: "Wipro Limited", exchange: "NSE" },
+            { symbol: "NIFTY", token: "99926000", name: "Nifty 50 Index", exchange: "NSE" },
+            { symbol: "BANKNIFTY", token: "99926009", name: "Bank Nifty Index", exchange: "NSE" }
         ];
         let watchlist = [...masterStocks];
         let selectedSymbol = "RELIANCE-EQ";
@@ -444,7 +446,7 @@ HTML_CONTENT = """<!DOCTYPE html>
         function updateStockMaps() {
             stockPrices = {}; stockTokens = {}; stockMap = {}; stockExchanges = {};
             masterStocks.forEach(s => {
-                stockPrices[s.symbol] = s.price;
+                stockPrices[s.symbol] = 0.0;
                 stockTokens[s.token] = s.symbol;
                 stockMap[s.symbol] = s.token;
                 stockExchanges[s.symbol] = s.exchange || "NSE";
@@ -537,7 +539,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             const minPrice = (minVal !== "") ? parseFloat(minVal) : 0;
             const maxPrice = (maxVal !== "") ? parseFloat(maxVal) : Infinity;
             const filtered = masterStocks.filter(s => {
-                const p = stockPrices[s.symbol] || s.price || 100.0;
+                const p = stockPrices[s.symbol] || 0.0;
                 return (s.symbol.toLowerCase().includes(query) || s.name.toLowerCase().includes(query)) && (p >= minPrice && p <= maxPrice);
             });
             watchlist = filtered;
@@ -569,6 +571,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                     renderWatchlistUI(watchlist);
                     loadHistoricalData();
                 };
+                const p = stockPrices[s.symbol] || 0.0;
                 item.innerHTML = `
                     <div>
                         <div style="font-weight: bold; font-size: 12px;">${s.symbol}</div>
@@ -576,8 +579,8 @@ HTML_CONTENT = """<!DOCTYPE html>
                     </div>
                     <div style="text-align: right; display: flex; align-items: center; gap: 8px;">
                         <div>
-                            <div id="wl_${s.symbol}" style="font-weight: bold; font-size: 12px;">₹${(stockPrices[s.symbol] || s.price).toFixed(2)}</div>
-                            <div style="font-size: 10px; color: ${s.chg >= 0 ? '#089981' : '#f23645'};">${s.chg >= 0 ? '+' : ''}${s.chg}%</div>
+                            <div id="wl_${s.symbol}" style="font-weight: bold; font-size: 12px;">₹${p.toFixed(2)}</div>
+                            <div style="font-size: 10px; color: #089981;">LIVE</div>
                         </div>
                         <span style="color: #f23645; font-weight: bold; font-size: 14px; cursor: pointer; padding: 2px 6px;" onclick="event.stopPropagation(); removeFromWatchlist('${s.symbol}')" title="Remove">×</span>
                     </div>
@@ -613,7 +616,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             document.getElementById("quickBuyPrice").innerText = candle.close.toFixed(2);
             document.getElementById("quickSellPrice").innerText = candle.close.toFixed(2);
             const diff = candle.close - candle.open;
-            const pct = (diff / candle.open) * 100;
+            const pct = candle.open > 0 ? (diff / candle.open) * 100 : 0;
             const chgEl = document.getElementById("ohlcChg");
             chgEl.innerText = `${diff >= 0 ? '+' : ''}${diff.toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
             chgEl.style.color = diff >= 0 ? '#089981' : '#f23645';
@@ -811,7 +814,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             const stopLoss = document.getElementById("stopLoss").value;
             const trailingSl = document.getElementById("trailingSl").value;
             const orderType = document.getElementById("orderType").value;
-            let price = stockPrices[selectedSymbol] || 100.00;
+            let price = stockPrices[selectedSymbol] || 0.00;
             if (orderType === "LIMIT") price = document.getElementById("manualPrice").value;
             const token = stockMap[selectedSymbol] || "2885";
             const exch = stockExchanges[selectedSymbol] || "NSE";
@@ -834,7 +837,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             const qty = document.getElementById("quickQty").value;
             const token = stockMap[selectedSymbol] || "2885";
             const exch = stockExchanges[selectedSymbol] || "NSE";
-            const price = stockPrices[selectedSymbol] || 100.00;
+            const price = stockPrices[selectedSymbol] || 0.00;
             addLog(`Placing quick ${type} order for ${qty} quantity of ${selectedSymbol}...`);
             fetch('/order', {
                 method: 'POST',
