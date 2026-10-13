@@ -145,12 +145,10 @@ def telegram_polling_worker():
 telegram_thread = threading.Thread(target=telegram_polling_worker, daemon=True)
 telegram_thread.start()
 
-# Autonomous Bot Background Worker Loop
 def autonomous_bot_worker():
     while True:
         try:
             if bg_state["bot_active"] and smart_api_obj:
-                # Background autonomous logic placeholder
                 print(f"[Autonomous Bot] Running in mode: {bg_state['target_mode']}...")
         except Exception as e:
             print("Autonomous bot worker error:", e)
@@ -826,7 +824,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                             }
                         }
                     }).catch(err => {});
-            }, 3000);
+            }, 2000); // Polling interval updated to 2 seconds (2000ms)
         }
         function executeOrder(type) {
             const qty = document.getElementById("orderQty").value;
@@ -951,7 +949,7 @@ def get_batch_ltp():
                 prices[sym] = float(resp["data"].get("ltp", 0.0))
             else:
                 prices[sym] = stock.get("price", 0.0)
-            time.sleep(0.05) # Added minor delay to prevent API rate limit issues
+            time.sleep(0.05)
         except:
             prices[sym] = stock.get("price", 0.0)
     return {"status": "success", "prices": prices}
