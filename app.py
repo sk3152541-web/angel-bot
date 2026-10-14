@@ -13,6 +13,9 @@ import time
 
 app = FastAPI()
 
+# Thread lock for safe concurrent access to smart_api_obj
+api_lock = threading.Lock()
+
 MASTER_STOCKS = [
     {"symbol": "RELIANCE-EQ", "token": "2885", "name": "Reliance Industries", "price": 1158.90, "exchange": "NSE"},
     {"symbol": "TCS-EQ", "token": "11536", "name": "Tata Consultancy Services", "price": 2125.00, "exchange": "NSE"},
@@ -46,7 +49,12 @@ bg_state = {
     "target_mode": "STOCK"
 }
 
-TELEGRAM_TOKEN = "8761937937:AAH0oH3UsUYgNmH8mwmFmOala38lHfGMBaY"
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8761937937:AAH0oH3UsUYgNmH8mwmFmOala38lHfGMBaY")
+
+@app.get("/ping")
+def health_check():
+    """Endpoint for UptimeRobot and cron-job.org to keep Render alive"""
+    return {"status": "alive", "timestamp": time.time()}
 
 def process_telegram_update(update):
     global smart_api_obj
@@ -102,18 +110,23 @@ def process_telegram_update(update):
             token = matched_stock["token"]
             exch = matched_stock["exchange"]
             price = 0.0
-            if smart_api_obj:
+            with api_lock:
+                current_api = smart_api_obj
+            if current_api:
                 try:
-                    resp = smart_api_obj.ltpData(exch, sym, token)
+                    resp = current_api.ltpData(exch, sym, token)
                     if resp and resp.get("status") and resp.get("data"):
                         price = float(resp["data"].get("ltp", 0.0))
-                except:
-                    pass
+                except Exception as ex:
+                    print("Telegram LTP error:", ex)
             
             if price == 0.0:
                 price = matched_stock.get("price", 0.0)
 
-            if smart_api_obj:
+            with api_lock:
+                is_connected_broker = (smart_api_obj is not None)
+
+            if is_connected_broker:
                 reply_text = f"📊 Company: {matched_stock['name']}\nSymbol: {sym}\nLTP: ₹{price}\nExchange: {exch}"
             else:
                 reply_text = f"⚠️ Broker connected nahi hai. Pehle terminal par Connect Live karein."
@@ -148,7 +161,10 @@ telegram_thread.start()
 def autonomous_bot_worker():
     while True:
         try:
-            if bg_state["bot_active"] and smart_api_obj:
+            with api_lock:
+                active = bg_state["bot_active"]
+                current_api = smart_api_obj
+            if active and current_api:
                 print(f"[Autonomous Bot] Running in mode: {bg_state['target_mode']}...")
         except Exception as e:
             print("Autonomous bot worker error:", e)
@@ -824,7 +840,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                             }
                         }
                     }).catch(err => {});
-            }, 2000); // Polling interval updated to 2 seconds (2000ms)
+            }, 2000);
         }
         function executeOrder(type) {
             const qty = document.getElementById("orderQty").value;
@@ -902,15 +918,16 @@ def get_options_chain(index: str = "NIFTY", expiry: str = "2026-10-08"):
 
 @app.get("/history")
 def get_historical_candles(token: str, exchange: str = "NSE", timeframe: str = "5m", before_to: int = None):
-    global smart_api_obj
-    if not smart_api_obj: return []
+    with api_lock:
+        current_api = smart_api_obj
+    if not current_api: return []
     interval_map = {"1m": "ONE_MINUTE", "5m": "FIVE_MINUTE", "15m": "FIFTEEN_MINUTE", "1h": "ONE_HOUR"}
     api_interval = interval_map.get(timeframe, "FIVE_MINUTE")
     to_date = datetime.fromtimestamp(before_to).strftime("%Y-%m-%d %H:%M") if before_to else datetime.now().strftime("%Y-%m-%d %H:%M")
     from_date = (datetime.fromtimestamp(before_to) - timedelta(days=5)).strftime("%Y-%m-%d %H:%M") if before_to else (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d %H:%M")
     try:
         historicParam = {"exchange": exchange, "symboltoken": token, "interval": api_interval, "fromdate": from_date, "todate": to_date}
-        resp = smart_api_obj.getCandleData(historicParam)
+        resp = current_api.getCandleData(historicParam)
         if resp and resp.get("status") and resp.get("data"):
             formatted = []
             for c in resp["data"]:
@@ -924,10 +941,11 @@ def get_historical_candles(token: str, exchange: str = "NSE", timeframe: str = "
 
 @app.get("/ltp")
 def get_live_ltp(exchange: str, symbol: str, token: str):
-    global smart_api_obj
-    if not smart_api_obj: return {"status": "error", "price": 0.0}
+    with api_lock:
+        current_api = smart_api_obj
+    if not current_api: return {"status": "error", "price": 0.0}
     try:
-        resp = smart_api_obj.ltpData(exchange, symbol, token)
+        resp = current_api.ltpData(exchange, symbol, token)
         if resp and resp.get("status") and resp.get("data"):
             return {"status": "success", "price": float(resp["data"].get("ltp", 0.0))}
     except Exception as e: print("LTP fetch error:", e)
@@ -935,21 +953,22 @@ def get_live_ltp(exchange: str, symbol: str, token: str):
 
 @app.get("/batch-ltp")
 def get_batch_ltp():
-    global smart_api_obj
+    with api_lock:
+        current_api = smart_api_obj
     prices = {}
-    if not smart_api_obj:
+    if not current_api:
         return {"status": "error", "prices": {}}
     for stock in MASTER_STOCKS:
         sym = stock["symbol"]
         exch = stock.get("exchange", "NSE")
         token = stock["token"]
         try:
-            resp = smart_api_obj.ltpData(exch, sym, token)
+            resp = current_api.ltpData(exch, sym, token)
             if resp and resp.get("status") and resp.get("data"):
                 prices[sym] = float(resp["data"].get("ltp", 0.0))
             else:
                 prices[sym] = stock.get("price", 0.0)
-            time.sleep(0.05)
+            time.sleep(0.02) # Optimized delay to prevent throttling
         except:
             prices[sym] = stock.get("price", 0.0)
     return {"status": "success", "prices": prices}
@@ -962,9 +981,10 @@ async def toggle_bot_state(data: dict):
 
 @app.post("/order")
 async def place_live_order(data: dict):
-    global smart_api_obj
+    with api_lock:
+        current_api = smart_api_obj
     try:
-        if not smart_api_obj: return {"status": "error", "message": "Broker not connected!"}
+        if not current_api: return {"status": "error", "message": "Broker not connected!"}
         order_params = {
             "variety": "NORMAL", "tradingsymbol": data["symbol"], "symboltoken": data["token"],
             "transactiontype": data["transactionType"], "exchange": data.get("exchange", "NSE"),
@@ -972,7 +992,7 @@ async def place_live_order(data: dict):
             "duration": "DAY", "price": str(data["price"]) if data.get("orderType") == "LIMIT" else "0",
             "squareoff": "0", "stoploss": "0", "quantity": str(data["quantity"])
         }
-        response = smart_api_obj.placeOrder(order_params)
+        response = current_api.placeOrder(order_params)
         if response and isinstance(response, dict) and response.get("status") == True:
             data_dict = response.get("data", {})
             order_id = data_dict.get("orderid") if isinstance(data_dict, dict) else str(data_dict)
@@ -992,7 +1012,8 @@ async def connect_broker(data: dict):
         totp_code = pyotp.TOTP(data["totpKey"]).now()
         session = obj.generateSession(data["clientId"], data["password"], totp_code)
         if session and session.get('status'):
-            smart_api_obj = obj
+            with api_lock:
+                smart_api_obj = obj
             return {"status": "success"}
         else:
             return {"status": "error", "message": "Invalid Credentials"}
