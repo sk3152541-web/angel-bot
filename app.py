@@ -13,9 +13,6 @@ import time
 
 app = FastAPI()
 
-# Thread lock for safe concurrent access to smart_api_obj
-api_lock = threading.Lock()
-
 MASTER_STOCKS = [
     {"symbol": "RELIANCE-EQ", "token": "2885", "name": "Reliance Industries", "price": 1158.90, "exchange": "NSE"},
     {"symbol": "TCS-EQ", "token": "11536", "name": "Tata Consultancy Services", "price": 2125.00, "exchange": "NSE"},
@@ -45,18 +42,12 @@ smart_api_obj = None
 bg_state = {
     "active_position": None,
     "last_price": 0.0,
-    "bot_active": False,
-    "target_mode": "STOCK"
+    "bot_active": False
 }
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8761937937:AAH0oH3UsUYgNmH8mwmFmOala38lHfGMBaY")
-
-@app.get("/ping")
-def health_check():
-    return {"status": "alive", "timestamp": time.time()}
+TELEGRAM_TOKEN = "8761937937:AAH0oH3UsUYgNmH8mwmFmOala38lHfGMBaY"
 
 def process_telegram_update(update):
-    global smart_api_obj
     try:
         callback_query = update.get("callback_query")
         if callback_query:
@@ -93,7 +84,7 @@ def process_telegram_update(update):
         if text in ["/start", "menu"]:
             requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json={
                 "chat_id": chat_id,
-                "text": "🚀 Sandeep Bhai, Trading Bot Connected! Kisi bhi company ka naam type karke bhejo live price mil jayega:",
+                "text": "🚀 Sandeep Bhai, Trading Bot Connected! Kisi bhi company ka naam (jaise: wipro, reliance, tcs) type karke bhejo live/closing price mil jayega:",
                 "reply_markup": inline_markup
             })
             return
@@ -109,28 +100,23 @@ def process_telegram_update(update):
             token = matched_stock["token"]
             exch = matched_stock["exchange"]
             price = 0.0
-            with api_lock:
-                current_api = smart_api_obj
-            if current_api:
+            if smart_api_obj:
                 try:
-                    resp = current_api.ltpData(exch, sym, token)
+                    resp = smart_api_obj.ltpData(exch, sym, token)
                     if resp and resp.get("status") and resp.get("data"):
                         price = float(resp["data"].get("ltp", 0.0))
-                except Exception as ex:
-                    print("Telegram LTP error:", ex)
-         
+                except:
+                    pass
+            
             if price == 0.0:
                 price = matched_stock.get("price", 0.0)
 
-            with api_lock:
-                is_connected_broker = (smart_api_obj is not None)
-
-            if is_connected_broker:
+            if smart_api_obj:
                 reply_text = f"📊 Company: {matched_stock['name']}\nSymbol: {sym}\nLTP: ₹{price}\nExchange: {exch}"
             else:
                 reply_text = f"⚠️ Broker connected nahi hai. Pehle terminal par Connect Live karein."
         else:
-            reply_text = f"❌ '{text}' naam ki koi company watchlist mein nahi mili."
+            reply_text = f"❌ '{text}' naam ki koi company watchlist mein nahi mili. Sahi naam type karein."
 
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json={
             "chat_id": chat_id,
@@ -156,29 +142,6 @@ def telegram_polling_worker():
 
 telegram_thread = threading.Thread(target=telegram_polling_worker, daemon=True)
 telegram_thread.start()
-
-def autonomous_bot_worker():
-    while True:
-        try:
-            with api_lock:
-                active = bg_state["bot_active"]
-                mode = bg_state["target_mode"]
-            
-            if active:
-                print(f"[Autonomous Bot] Running in mode: {mode}...")
-                stock = MASTER_STOCKS[0]
-                print(f"[Autonomous Bot] Trend signal detected for {stock['symbol']}. Executing order via Bypass Mode...")
-                simulated_order_id = "AUTO_ORD_" + str(int(time.time()))
-                print(f"[Autonomous Bot Success] Trade Executed Successfully! Order ID: {simulated_order_id}")
-                bg_state["active_position"] = {"symbol": stock["symbol"], "type": "BUY", "orderId": simulated_order_id, "time": time.time()}
-                with api_lock:
-                    bg_state["bot_active"] = False
-        except Exception as e:
-            print("Autonomous bot worker error:", e)
-        time.sleep(10)
-
-bot_worker_thread = threading.Thread(target=autonomous_bot_worker, daemon=True)
-bot_worker_thread.start()
 
 HTML_CONTENT = """<!DOCTYPE html>
 <html lang="en">
@@ -445,7 +408,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             { symbol: "INFY-EQ", token: "1594", name: "Infosys Limited", price: 1020.00, exchange: "NSE" },
             { symbol: "ICICIBANK-EQ", token: "4963", name: "ICICI Bank Ltd", price: 1340.00, exchange: "NSE" },
             { symbol: "SBIN-EQ", token: "3045", name: "State Bank of India", price: 941.00, exchange: "NSE" },
-            { symbol: "BHARTIARTL-EQ", name: "Bharti Airtel Ltd", token: "10604", price: 1778.70, exchange: "NSE" },
+            { symbol: "BHARTIARTL-EQ", token: "10604", name: "Bharti Airtel Ltd", price: 1778.70, exchange: "NSE" },
             { symbol: "KOTAKBANK-EQ", token: "1922", name: "Kotak Mahindra Bank", price: 443.40, exchange: "NSE" },
             { symbol: "LT-EQ", token: "11483", name: "Larsen & Toubro Ltd", price: 3627.50, exchange: "NSE" },
             { symbol: "ITC-EQ", token: "1660", name: "ITC Limited", price: 430.20, exchange: "NSE" },
@@ -488,7 +451,7 @@ HTML_CONTENT = """<!DOCTYPE html>
         function updateStockMaps() {
             stockPrices = {}; stockTokens = {}; stockMap = {}; stockExchanges = {};
             masterStocks.forEach(s => {
-                stockPrices[s.symbol] = s.price;
+                stockPrices[s.symbol] = 0.0;
                 stockTokens[s.token] = s.symbol;
                 stockMap[s.symbol] = s.token;
                 stockExchanges[s.symbol] = s.exchange || "NSE";
@@ -613,7 +576,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                     renderWatchlistUI(watchlist);
                     loadHistoricalData();
                 };
-                const currentP = stockPrices[s.symbol] || s.price || 0.0;
+                const currentP = isConnected ? (stockPrices[s.symbol] || 0.0) : 0.0;
                 item.innerHTML = `
                     <div>
                         <div style="font-weight: bold; font-size: 12px;">${s.symbol}</div>
@@ -759,9 +722,9 @@ HTML_CONTENT = """<!DOCTYPE html>
                 if(botRunning) {
                     btn.innerText = "Stop Advanced Trend Bot";
                     btn.style.backgroundColor = "#f23645";
-                    status.innerText = `● Bot Status: Active [Bypass Mode - Mode: ${targetMode}]`;
+                    status.innerText = `● Bot Status: Active [Trend Filter On - Mode: ${targetMode}]`;
                     status.style.color = "#089981";
-                    addLog(`Advanced Trend Bot started in ${targetMode} mode (Bypass Active).`);
+                    addLog(`Advanced Trend Bot started in ${targetMode} mode.`);
                     showToast("Advanced Autonomous Bot Started!");
                 } else {
                     btn.innerText = "Start Advanced Trend Autonomous Bot";
@@ -802,52 +765,62 @@ HTML_CONTENT = """<!DOCTYPE html>
         function startPolling() {
             setInterval(() => {
                 if (!isConnected) return;
-                fetch('/batch-ltp')
+                const selToken = stockMap[selectedSymbol] || "2885";
+                const selExch = stockExchanges[selectedSymbol] || "NSE";
+                fetch(`/ltp?exchange=${selExch}&symbol=${selectedSymbol}&token=${selToken}`)
                     .then(res => res.json())
                     .then(data => {
-                        if (data && data.status === "success" && data.prices) {
-                            const pricesObj = data.prices;
-                            for (let sym in pricesObj) {
-                                const newPrice = pricesObj[sym];
-                                if (newPrice <= 0) continue;
-                                const oldPrice = stockPrices[sym] || newPrice;
-                                stockPrices[sym] = newPrice;
-                                const wlEl = document.getElementById("wl_" + sym);
-                                if (wlEl) {
-                                    wlEl.innerText = "₹" + newPrice.toFixed(2);
-                                    wlEl.className = newPrice > oldPrice ? "flash-up" : (newPrice < oldPrice ? "flash-down" : "");
-                                }
+                        if (data && data.status === "success") {
+                            const newPrice = data.price;
+                            if (newPrice <= 0) return;
+                            const sym = selectedSymbol;
+                            const oldPrice = stockPrices[sym] || newPrice;
+                            stockPrices[sym] = newPrice;
+                            const wlEl = document.getElementById("wl_" + sym);
+                            if (wlEl) {
+                                wlEl.innerText = "₹" + newPrice.toFixed(2);
+                                wlEl.className = newPrice > oldPrice ? "flash-up" : (newPrice < oldPrice ? "flash-down" : "");
                             }
-
-                            const currentPrice = stockPrices[selectedSymbol] || 0.0;
-                            if (currentPrice > 0) {
-                                if (activeTrade && activeTrade.symbol === selectedSymbol) {
-                                    let pnl = activeTrade.type === 'BUY' ? (currentPrice - activeTrade.entryPrice) * activeTrade.qty : (activeTrade.entryPrice - currentPrice) * activeTrade.qty;
-                                    const pnlEl = document.getElementById("headerPnl");
-                                    pnlEl.innerText = (pnl >= 0 ? "+₹" : "-₹") + Math.abs(pnl).toFixed(2);
-                                    pnlEl.style.color = pnl >= 0 ? "#089981" : "#f23645";
-                                }
-                                if (candlestickSeries) {
-                                    const currentTimeSec = Math.floor(Date.now() / 1000);
-                                    const interval = getCandleIntervalSeconds();
-                                    const candleTimeSlot = Math.floor(currentTimeSec / interval) * interval;
-                                    if (!currentCandle || currentCandleTime !== candleTimeSlot) {
-                                        currentCandleTime = candleTimeSlot;
-                                        currentCandle = { time: currentCandleTime, open: currentPrice, high: currentPrice, low: currentPrice, close: currentPrice };
-                                    } else {
-                                        currentCandle.high = Math.max(currentCandle.high, currentPrice);
-                                        currentCandle.low = Math.min(currentCandle.low, currentPrice);
-                                        currentCandle.close = currentPrice;
-                                    }
-                                    candlestickSeries.update(currentCandle);
-                                    updateOhlcBar(currentCandle);
-                                }
-                                const chartEl = document.getElementById('chartContainer');
-                                if (chart && chartEl && chartEl.clientWidth > 0) chart.resize(chartEl.clientWidth, 485);
+                            if (activeTrade && activeTrade.symbol === sym) {
+                                let pnl = activeTrade.type === 'BUY' ? (newPrice - activeTrade.entryPrice) * activeTrade.qty : (activeTrade.entryPrice - newPrice) * activeTrade.qty;
+                                const pnlEl = document.getElementById("headerPnl");
+                                pnlEl.innerText = (pnl >= 0 ? "+₹" : "-₹") + Math.abs(pnl).toFixed(2);
+                                pnlEl.style.color = pnl >= 0 ? "#089981" : "#f23645";
                             }
+                            if (candlestickSeries) {
+                                const currentTimeSec = Math.floor(Date.now() / 1000);
+                                const interval = getCandleIntervalSeconds();
+                                const candleTimeSlot = Math.floor(currentTimeSec / interval) * interval;
+                                if (!currentCandle || currentCandleTime !== candleTimeSlot) {
+                                    currentCandleTime = candleTimeSlot;
+                                    currentCandle = { time: currentCandleTime, open: newPrice, high: newPrice, low: newPrice, close: newPrice };
+                                } else {
+                                    currentCandle.high = Math.max(currentCandle.high, newPrice);
+                                    currentCandle.low = Math.min(currentCandle.low, newPrice);
+                                    currentCandle.close = newPrice;
+                                }
+                                candlestickSeries.update(currentCandle);
+                                updateOhlcBar(currentCandle);
+                            }
+                            const chartEl = document.getElementById('chartContainer');
+                            if (chart && chartEl && chartEl.clientWidth > 0) chart.resize(chartEl.clientWidth, 485);
                         }
                     }).catch(err => {});
-            }, 2000);
+
+                watchlist.forEach(s => {
+                    if (s.symbol !== selectedSymbol) {
+                        fetch(`/ltp?exchange=${s.exchange || 'NSE'}&symbol=${s.symbol}&token=${s.token}`)
+                            .then(res => res.json())
+                            .then(data => {
+                                if (data && data.status === "success" && data.price > 0) {
+                                    stockPrices[s.symbol] = data.price;
+                                    const el = document.getElementById("wl_" + s.symbol);
+                                    if (el) el.innerText = "₹" + data.price.toFixed(2);
+                                }
+                            }).catch(err => {});
+                    }
+                });
+            }, 5000);
         }
         function executeOrder(type) {
             const qty = document.getElementById("orderQty").value;
@@ -925,16 +898,15 @@ def get_options_chain(index: str = "NIFTY", expiry: str = "2026-10-08"):
 
 @app.get("/history")
 def get_historical_candles(token: str, exchange: str = "NSE", timeframe: str = "5m", before_to: int = None):
-    with api_lock:
-        current_api = smart_api_obj
-    if not current_api: return []
+    global smart_api_obj
+    if not smart_api_obj: return []
     interval_map = {"1m": "ONE_MINUTE", "5m": "FIVE_MINUTE", "15m": "FIFTEEN_MINUTE", "1h": "ONE_HOUR"}
     api_interval = interval_map.get(timeframe, "FIVE_MINUTE")
     to_date = datetime.fromtimestamp(before_to).strftime("%Y-%m-%d %H:%M") if before_to else datetime.now().strftime("%Y-%m-%d %H:%M")
     from_date = (datetime.fromtimestamp(before_to) - timedelta(days=5)).strftime("%Y-%m-%d %H:%M") if before_to else (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d %H:%M")
     try:
         historicParam = {"exchange": exchange, "symboltoken": token, "interval": api_interval, "fromdate": from_date, "todate": to_date}
-        resp = current_api.getCandleData(historicParam)
+        resp = smart_api_obj.getCandleData(historicParam)
         if resp and resp.get("status") and resp.get("data"):
             formatted = []
             for c in resp["data"]:
@@ -948,50 +920,25 @@ def get_historical_candles(token: str, exchange: str = "NSE", timeframe: str = "
 
 @app.get("/ltp")
 def get_live_ltp(exchange: str, symbol: str, token: str):
-    with api_lock:
-        current_api = smart_api_obj
-    if not current_api: return {"status": "error", "price": 0.0}
+    global smart_api_obj
+    if not smart_api_obj: return {"status": "error", "price": 0.0}
     try:
-        resp = current_api.ltpData(exchange, symbol, token)
+        resp = smart_api_obj.ltpData(exchange, symbol, token)
         if resp and resp.get("status") and resp.get("data"):
             return {"status": "success", "price": float(resp["data"].get("ltp", 0.0))}
     except Exception as e: print("LTP fetch error:", e)
     return {"status": "error", "price": 0.0}
 
-@app.get("/batch-ltp")
-def get_batch_ltp():
-    with api_lock:
-        current_api = smart_api_obj
-    prices = {}
-    if not current_api:
-        return {"status": "error", "prices": {}}
-    for stock in MASTER_STOCKS:
-        sym = stock["symbol"]
-        exch = stock.get("exchange", "NSE")
-        token = stock["token"]
-        try:
-            resp = current_api.ltpData(exch, sym, token)
-            if resp and resp.get("status") and resp.get("data"):
-                prices[sym] = float(resp["data"].get("ltp", 0.0))
-            else:
-                prices[sym] = stock.get("price", 0.0)
-            time.sleep(0.02)
-        except:
-            prices[sym] = stock.get("price", 0.0)
-    return {"status": "success", "prices": prices}
-
 @app.post("/toggle-bot")
 async def toggle_bot_state(data: dict):
     bg_state["bot_active"] = data.get("active", False)
-    bg_state["target_mode"] = data.get("mode", "STOCK")
-    return {"status": "success", "bot_active": bg_state["bot_active"], "mode": bg_state["target_mode"]}
+    return {"status": "success", "bot_active": bg_state["bot_active"]}
 
 @app.post("/order")
 async def place_live_order(data: dict):
-    with api_lock:
-        current_api = smart_api_obj
+    global smart_api_obj
     try:
-        if not current_api: return {"status": "error", "message": "Broker not connected!"}
+        if not smart_api_obj: return {"status": "error", "message": "Broker not connected!"}
         order_params = {
             "variety": "NORMAL", "tradingsymbol": data["symbol"], "symboltoken": data["token"],
             "transactiontype": data["transactionType"], "exchange": data.get("exchange", "NSE"),
@@ -999,7 +946,7 @@ async def place_live_order(data: dict):
             "duration": "DAY", "price": str(data["price"]) if data.get("orderType") == "LIMIT" else "0",
             "squareoff": "0", "stoploss": "0", "quantity": str(data["quantity"])
         }
-        response = current_api.placeOrder(order_params)
+        response = smart_api_obj.placeOrder(order_params)
         if response and isinstance(response, dict) and response.get("status") == True:
             data_dict = response.get("data", {})
             order_id = data_dict.get("orderid") if isinstance(data_dict, dict) else str(data_dict)
@@ -1019,8 +966,7 @@ async def connect_broker(data: dict):
         totp_code = pyotp.TOTP(data["totpKey"]).now()
         session = obj.generateSession(data["clientId"], data["password"], totp_code)
         if session and session.get('status'):
-            with api_lock:
-                smart_api_obj = obj
+            smart_api_obj = obj
             return {"status": "success"}
         else:
             return {"status": "error", "message": "Invalid Credentials"}
