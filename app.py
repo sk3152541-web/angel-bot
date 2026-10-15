@@ -119,7 +119,7 @@ def process_telegram_update(update):
                         price = float(resp["data"].get("ltp", 0.0))
                 except Exception as ex:
                     print("Telegram LTP error:", ex)
-            
+         
             if price == 0.0:
                 price = matched_stock.get("price", 0.0)
 
@@ -164,8 +164,24 @@ def autonomous_bot_worker():
             with api_lock:
                 active = bg_state["bot_active"]
                 current_api = smart_api_obj
+                mode = bg_state["target_mode"]
+            
             if active and current_api:
-                print(f"[Autonomous Bot] Running in mode: {bg_state['target_mode']}...")
+                print(f"[Autonomous Bot] Running in mode: {mode}...")
+                # Autonomous order execution logic added here
+                stock = MASTER_STOCKS[0] # Default to first stock or select dynamically
+                order_params = {
+                    "variety": "NORMAL", "tradingsymbol": stock["symbol"], "symboltoken": stock["token"],
+                    "transactiontype": "BUY", "exchange": stock.get("exchange", "NSE"),
+                    "ordertype": "MARKET", "producttype": "INTRADAY",
+                    "duration": "DAY", "price": "0",
+                    "squareoff": "0", "stoploss": "0", "quantity": "1"
+                }
+                response = current_api.placeOrder(order_params)
+                print(f"[Autonomous Bot] Order Response: {response}")
+                # Turn off bot after placing test order to prevent infinite loops
+                with api_lock:
+                    bg_state["bot_active"] = False
         except Exception as e:
             print("Autonomous bot worker error:", e)
         time.sleep(10)
@@ -968,7 +984,7 @@ def get_batch_ltp():
                 prices[sym] = float(resp["data"].get("ltp", 0.0))
             else:
                 prices[sym] = stock.get("price", 0.0)
-            time.sleep(0.02) # Optimized delay to prevent throttling
+            time.sleep(0.02)
         except:
             prices[sym] = stock.get("price", 0.0)
     return {"status": "success", "prices": prices}
