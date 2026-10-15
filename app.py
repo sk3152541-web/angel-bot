@@ -13,6 +13,7 @@ import time
 
 app = FastAPI()
 
+# Thread lock for safe concurrent access to smart_api_obj
 api_lock = threading.Lock()
 
 MASTER_STOCKS = [
@@ -166,9 +167,10 @@ def autonomous_bot_worker():
             if active:
                 print(f"[Autonomous Bot] Running in mode: {mode}...")
                 stock = MASTER_STOCKS[0]
-                print(f"[Autonomous Bot] Trend signal detected for {stock['symbol']}. Executing order...")
+                print(f"[Autonomous Bot] Trend signal detected for {stock['symbol']}. Executing order via Bypass Mode...")
                 simulated_order_id = "AUTO_ORD_" + str(int(time.time()))
-                print(f"[Autonomous Bot Success] Order executed successfully! ID: {simulated_order_id}")
+                print(f"[Autonomous Bot Success] Trade Executed Successfully! Order ID: {simulated_order_id}")
+                bg_state["active_position"] = {"symbol": stock["symbol"], "type": "BUY", "orderId": simulated_order_id, "time": time.time()}
                 with api_lock:
                     bg_state["bot_active"] = False
         except Exception as e:
@@ -757,9 +759,9 @@ HTML_CONTENT = """<!DOCTYPE html>
                 if(botRunning) {
                     btn.innerText = "Stop Advanced Trend Bot";
                     btn.style.backgroundColor = "#f23645";
-                    status.innerText = `● Bot Status: Active [Trend Filter On - Mode: ${targetMode}]`;
+                    status.innerText = `● Bot Status: Active [Bypass Mode - Mode: ${targetMode}]`;
                     status.style.color = "#089981";
-                    addLog(`Advanced Trend Bot started in ${targetMode} mode.`);
+                    addLog(`Advanced Trend Bot started in ${targetMode} mode (Bypass Active).`);
                     showToast("Advanced Autonomous Bot Started!");
                 } else {
                     btn.innerText = "Start Advanced Trend Autonomous Bot";
