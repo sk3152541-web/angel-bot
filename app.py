@@ -80,6 +80,7 @@ HTML_CONTENT = """<!DOCTYPE html>
         .opt-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; }
         .opt-table th, .opt-table td { border: 1px solid #2a2e39; padding: 8px; text-align: center; }
         .opt-table th { background-color: #181c25; color: #38bdf8; }
+        .opt-table tr { cursor: pointer; }
         .opt-table tr:hover { background-color: #1e222d; }
         #toast { position: fixed; bottom: 20px; right: 20px; background: #181c25; border: 1px solid #38bdf8; color: white; padding: 12px 20px; border-radius: 6px; font-size: 12px; z-index: 1000; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
     </style>
@@ -154,7 +155,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             <div id="tab-options" class="tab-content">
                 <div class="control-panel">
                     <div class="control-group">
-                        <h3 style="margin-top: 0; color: #38bdf8; font-size: 14px;">Nifty & Bank Nifty Options Chain (CE / PE)</h3>
+                        <h3 style="margin-top: 0; color: #38bdf8; font-size: 14px;">Nifty & Bank Nifty Options Chain (CE / PE) - Click row to select strike</h3>
                         <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 10px;">
                             <button class="btn" style="background-color: #38bdf8; color: #0b0e14; height: 30px;" onclick="loadOptionsChain()">Fetch Chain Range</button>
                         </div>
@@ -562,9 +563,18 @@ HTML_CONTENT = """<!DOCTYPE html>
                         <td>${row.peVol}</td>
                         <td style="color: #f23645;">₹${row.peLtp.toFixed(2)}</td>
                     `;
+                    // --- Click Event Action for Options Chain Row ---
+                    tr.onclick = () => {
+                        selectedSymbol = `NIFTY_${row.strike}_STRIKE`;
+                        selectedToken = "NIFTY";
+                        selectedExchange = "NFO";
+                        document.getElementById("activeSymbolTitle").innerText = `Selected Strike: NIFTY ${row.strike}`;
+                        showToast(`Strike ${row.strike} Selected for Autonomous Bot!`);
+                        addLog(`User selected Strike ${row.strike} (CE LTP: ₹${row.ceLtp}, PE LTP: ₹${row.peLtp}) from Options Chain.`);
+                    };
                     tbody.appendChild(tr);
                 });
-                showToast("Options Chain Range Loaded!");
+                showToast("Options Chain Range Loaded! Click any row to select strike.");
             });
         }
 
@@ -672,26 +682,18 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # ==================== IP CHANGE & AUTO-LOGIN RECOVERY LOGIC ====================
 def ensure_smart_api_session():
-  """Yeh function check karega ki session active hai ya nahi.
-
-  Agar Render ka IP change hone ki wajah se session expire ya error deta hai,
-  toh yeh saved credentials ka use karke automatically fresh login kar lega.
-  """
   global smart_api_obj
   if not saved_credentials["api_key"] or not saved_credentials["client_id"]:
     return smart_api_obj
 
   try:
-    # Test request bhej kar check karte hain ki session valid hai ya nahi
     if smart_api_obj:
-      # Chhota sa test call (e.g., profile ya orderbook check)
       test_resp = smart_api_obj.getProfile()
       if test_resp and test_resp.get("status"):
         return smart_api_obj
   except Exception:
-    pass  # Agar exception aayi matlab session invalidate ho gaya hai (IP change etc.)
+    pass
 
-  # Automatic Re-login Logic (Fresh Session for New IP)
   try:
     print("[System] Re-authenticating session due to IP change or expiry...")
     obj = SmartConnect(api_key=saved_credentials["api_key"])
@@ -1169,7 +1171,7 @@ def autonomous_bot_background_worker():
         ).start()
         break
     except Exception as e:
-        print("Autonomous Bot Error:", e)
+      print("Autonomous Bot Error:", e)
 
 
 threading.Thread(target=autonomous_bot_background_worker, daemon=True).start()
@@ -1192,7 +1194,6 @@ async def toggle_bot_state(data: dict):
 async def connect_broker(data: dict):
   global smart_api_obj
   try:
-    # Credentials ko global store mein save kar lete hain taaki IP change hone par auto-login ho sake
     saved_credentials["api_key"] = data["apiKey"]
     saved_credentials["client_id"] = data["clientId"]
     saved_credentials["password"] = data["password"]
