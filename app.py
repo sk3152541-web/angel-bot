@@ -24,13 +24,14 @@ stockExchanges = {}
 scrip_master_cache = []
 loop = None
 
-# Global credentials store karne ke liye taaki automatic re-login ho sake
 saved_credentials = {
     "api_key": "",
     "client_id": "",
     "password": "",
     "totp_key": "",
 }
+
+last_login_time = 0
 
 bg_state = {
     "bot_active": False,
@@ -40,7 +41,7 @@ bg_state = {
     "leverage": 1,
     "symbol": "",
     "token": "",
-    "exchange": "NSE",
+    "exchange": "NSE"
 }
 
 HTML_CONTENT = """<!DOCTYPE html>
@@ -83,6 +84,8 @@ HTML_CONTENT = """<!DOCTYPE html>
         .opt-table tr { cursor: pointer; }
         .opt-table tr:hover { background-color: #1e222d; }
         #toast { position: fixed; bottom: 20px; right: 20px; background: #181c25; border: 1px solid #38bdf8; color: white; padding: 12px 20px; border-radius: 6px; font-size: 12px; z-index: 1000; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+        .status-badge { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #f23645; margin-right: 5px; }
+        .status-badge.connected { background-color: #089981; }
     </style>
 </head>
 <body>
@@ -90,6 +93,7 @@ HTML_CONTENT = """<!DOCTYPE html>
         <div><b>▲ NIFTY 50</b> <span style="color: #089981; margin-left: 5px;" id="niftyHeader">22,620.45</span></div>
         <div><b>▲ BANKNIFTY</b> <span style="color: #089981; margin-left: 5px;" id="bankniftyHeader">48,250.10</span></div>
         <div style="display: flex; gap: 15px; align-items: center;">
+            <div style="font-size: 11px;"><span id="connBadge" class="status-badge"></span><span id="connStatusText">Disconnected</span></div>
             <div style="color: #38bdf8; font-weight: bold;">⚡ Fully Autonomous Bot Terminal</div>
         </div>
     </div>
@@ -300,6 +304,19 @@ HTML_CONTENT = """<!DOCTYPE html>
             initChart();
             initWebSocket();
         });
+
+        function updateConnectionUI(connected) {
+            isConnected = connected;
+            const badge = document.getElementById("connBadge");
+            const text = document.getElementById("connStatusText");
+            if (connected) {
+                badge.className = "status-badge connected";
+                text.innerText = "Connected Live";
+            } else {
+                badge.className = "status-badge";
+                text.innerText = "Disconnected";
+            }
+        }
 
         function initWebSocket() {
             const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -563,7 +580,6 @@ HTML_CONTENT = """<!DOCTYPE html>
                         <td>${row.peVol}</td>
                         <td style="color: #f23645;">₹${row.peLtp.toFixed(2)}</td>
                     `;
-                    // --- Click Event Action for Options Chain Row ---
                     tr.onclick = () => {
                         selectedSymbol = `NIFTY_${row.strike}_STRIKE`;
                         selectedToken = "NIFTY";
@@ -630,11 +646,12 @@ HTML_CONTENT = """<!DOCTYPE html>
             fetch('/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
             .then(res => res.json()).then(resp => {
                 if(resp.status === "success") {
-                    isConnected = true;
+                    updateConnectionUI(true);
                     showToast("Connected to SmartAPI successfully!");
                     addLog("Connected to SmartAPI feed successfully.");
                     loadMarketStatus();
                 } else {
+                    updateConnectionUI(false);
                     showToast("Login Failed: " + resp.message);
                     addLog("Connection failed: " + resp.message);
                 }
@@ -646,581 +663,324 @@ HTML_CONTENT = """<!DOCTYPE html>
 </html>
 """
 
-
 class ConnectionManager:
-
-  def __init__(self):
-    self.active_connections: list[WebSocket] = []
-
-  async def connect(self, websocket: WebSocket):
-    await websocket.accept()
-    self.active_connections.append(websocket)
-
-  def disconnect(self, websocket: WebSocket):
-    self.active_connections.remove(websocket)
-
-  async def broadcast(self, message: str):
-    for connection in self.active_connections:
-      try:
-        await connection.send_text(message)
-      except:
-        pass
-
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+    async def broadcast(self, message: str):
+        for connection in self.active_connections:
+            try: await connection.send_text(message)
+            except: pass
 
 manager = ConnectionManager()
 
-
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-  await manager.connect(websocket)
-  try:
-    while True:
-      await websocket.receive_text()
-  except WebSocketDisconnect:
-    manager.disconnect(websocket)
+    await manager.connect(websocket)
+    try:
+        while True: await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
 
-
-# ==================== IP CHANGE & AUTO-LOGIN RECOVERY LOGIC ====================
 def ensure_smart_api_session():
-  global smart_api_obj
-  if not saved_credentials["api_key"] or not saved_credentials["client_id"]:
+    global smart_api_obj, last_login_time
+    if not saved_credentials["api_key"] or not saved_credentials["client_id"]:
+        return smart_api_obj
+    if smart_api_obj:
+        return smart_api_obj
+    current_time = time.time()
+    if current_time - last_login_time < 60:
+        return smart_api_obj
+    try:
+        last_login_time = current_time
+        print("[System] Generating fresh session to SmartAPI...")
+        obj = SmartConnect(api_key=saved_credentials["api_key"])
+        totp_code = pyotp.TOTP(saved_credentials["totp_key"]).now()
+        session = obj.generateSession(saved_credentials["client_id"], saved_credentials["password"], totp_code)
+        if session and session.get('status'):
+            smart_api_obj = obj
+            print("[System] Successfully logged in with fresh session!")
+            return smart_api_obj
+    except Exception as e:
+        print("[System] Session generation failed:", e)
     return smart_api_obj
 
-  try:
-    if smart_api_obj:
-      test_resp = smart_api_obj.getProfile()
-      if test_resp and test_resp.get("status"):
-        return smart_api_obj
-  except Exception:
-    pass
-
-  try:
-    print("[System] Re-authenticating session due to IP change or expiry...")
-    obj = SmartConnect(api_key=saved_credentials["api_key"])
-    totp_code = pyotp.TOTP(saved_credentials["totp_key"]).now()
-    session = obj.generateSession(
-        saved_credentials["client_id"],
-        saved_credentials["password"],
-        totp_code,
-    )
-    if session and session.get("status"):
-      smart_api_obj = obj
-      print("[System] Successfully re-logged in with fresh IP session!")
-      return smart_api_obj
-  except Exception as e:
-    print("[System] Auto re-login failed:", e)
-
-  return smart_api_obj
-# ==============================================================================
-
-
 def start_smart_websocket(auth_token, api_key, client_code, feed_token):
-  global sws
-  try:
-    sws = SmartWebSocketV2(auth_token, api_key, client_code, feed_token)
-
-    def on_data(ws_app, message):
-      try:
-        token = str(message.get("token"))
-        ltp = float(message.get("last_traded_price", 0)) / 100.0
-        symbol = stockTokens.get(token)
-        if symbol and ltp > 0:
-          live_prices[symbol] = ltp
-          asyncio.run_coroutine_threadsafe(
-              manager.broadcast(json.dumps({"symbol": symbol, "ltp": ltp})),
-              loop,
-          )
-      except:
-        pass
-
-    def on_open(ws_app):
-      tokens_to_sub = [t for t in stockTokens.keys() if t.isdigit()]
-      if tokens_to_sub:
-        token_list = [{"exchangeType": 1, "tokens": tokens_to_sub}]
-        sws.subscribe("corridor", 1, token_list)
-
-    sws.on_data = on_data
-    sws.on_open = on_open
-    sws.connect()
-  except Exception as e:
-    print("SWS Error:", e)
-
+    global sws
+    try:
+        sws = SmartWebSocketV2(auth_token, api_key, client_code, feed_token)
+        def on_data(ws_app, message):
+            try:
+                token = str(message.get("token"))
+                ltp = float(message.get("last_traded_price", 0)) / 100.0
+                symbol = stockTokens.get(token)
+                if symbol and ltp > 0:
+                    live_prices[symbol] = ltp
+                    asyncio.run_coroutine_threadsafe(manager.broadcast(json.dumps({"symbol": symbol, "ltp": ltp})), loop)
+            except: pass
+        def on_open(ws_app):
+            tokens_to_sub = [t for t in stockTokens.keys() if t.isdigit()]
+            if tokens_to_sub:
+                token_list = [{"exchangeType": 1, "tokens": tokens_to_sub}]
+                sws.subscribe("corridor", 1, token_list)
+        sws.on_data = on_data
+        sws.on_open = on_open
+        sws.connect()
+    except Exception as e:
+        print("SWS Error:", e)
 
 @app.on_event("startup")
 async def startup_event():
-  global loop, scrip_master_cache
-  loop = asyncio.get_event_loop()
-  try:
-    url = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
-    res = requests.get(url, timeout=10)
-    if res.status_code == 200:
-      scrip_master_cache = res.json()
-      print(
-          "[System] Scrip Master successfully cached locally. Total items:"
-          f" {len(scrip_master_cache)}"
-      )
-  except Exception as e:
-    print("[System] Failed to download Scrip Master cache:", e)
-
+    global loop, scrip_master_cache
+    loop = asyncio.get_event_loop()
+    try:
+        url = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
+        res = requests.get(url, timeout=15)
+        if res.status_code == 200:
+            scrip_master_cache = res.json()
+            print(f"[System] Scrip Master successfully cached locally. Total items: {len(scrip_master_cache)}")
+        else:
+            raise Exception("Non-200 response")
+    except Exception as e:
+        print("[System] Failed to download Scrip Master online. Loading fallback backup items:", e)
+        # Fallback default items to prevent blank watchlist if offline/timeout on startup
+        scrip_master_cache = [
+            {"symbol": "RELIANCE-EQ", "token": "2885", "exchange": "NSE", "name": "RELIANCE"},
+            {"symbol": "TCS-EQ", "token": "11536", "exchange": "NSE", "name": "TCS"},
+            {"symbol": "INFY-EQ", "token": "1594", "exchange": "NSE", "name": "INFY"},
+            {"symbol": "SBIN-EQ", "token": "3045", "exchange": "NSE", "name": "SBIN"},
+            {"symbol": "ITC-EQ", "token": "1660", "exchange": "NSE", "name": "ITC"}
+        ]
 
 @app.get("/", response_class=HTMLResponse)
 def get_root():
-  return HTML_CONTENT
-
+    return HTML_CONTENT
 
 @app.get("/market-status")
 def get_market_status():
-  global stockTokens, stockMap, stockExchanges
-  active_api = ensure_smart_api_session()
-  stocks_list = []
-  if active_api:
-    try:
-      master_symbols = ["RELIANCE", "TCS", "INFY", "SBIN", "ITC"]
-      raw_watchlist_items = []
-      for sym in master_symbols:
-        try:
-          matched = [
-              item
-              for item in scrip_master_cache
-              if item.get("symbol") == f"{sym}-EQ"
-              or item.get("symbol") == sym
-          ]
-          if matched:
+    global stockTokens, stockMap, stockExchanges
+    active_api = ensure_smart_api_session()
+    stocks_list = []
+    master_symbols = ["RELIANCE", "TCS", "INFY", "SBIN", "ITC"]
+    raw_watchlist_items = []
+    for sym in master_symbols:
+        matched = [item for item in scrip_master_cache if item.get("symbol") == f"{sym}-EQ" or item.get("symbol") == sym]
+        if matched:
             raw_watchlist_items.append(matched[0])
-          time.sleep(0.2)
-        except:
-          pass
-
-      for item in raw_watchlist_items:
+    
+    for item in raw_watchlist_items:
         sym = item.get("symbol")
         tok = item.get("token")
         exch = item.get("exchange", "NSE")
-        if not sym or not tok:
-          continue
-
+        if not sym or not tok: continue
         price = 0.0
         close_price = 0.0
-        try:
-          resp = active_api.ltpData(exch, sym, str(tok))
-          if resp and resp.get("status") and resp.get("data"):
-            price = float(resp["data"].get("ltp", 0.0))
-            close_price = float(resp["data"].get("close", price))
-          time.sleep(0.4)
-        except:
-          pass
-
+        if active_api:
+            try:
+                resp = active_api.ltpData(exch, sym, str(tok))
+                if resp and resp.get("status") and resp.get("data"):
+                    price = float(resp["data"].get("ltp", 0.0))
+                    close_price = float(resp["data"].get("close", price))
+                time.sleep(0.3)
+            except: pass
         stocks_list.append({
             "symbol": sym,
             "token": str(tok),
             "exchange": exch,
             "price": price,
-            "prev_close": close_price if close_price > 0 else price,
+            "prev_close": close_price if close_price > 0 else price
         })
         stockTokens[str(tok)] = sym
         stockMap[sym] = str(tok)
         stockExchanges[sym] = exch
         live_prices[sym] = price
-    except Exception as e:
-      print("Market Status Error:", e)
-  return {"stocks": stocks_list}
-
+    return {"stocks": stocks_list}
 
 @app.get("/search-symbol")
 def search_symbol(q: str):
-  results = []
-  query_upper = q.upper()
-  active_api = ensure_smart_api_session()
-  try:
-    matched_items = [
-        item
-        for item in scrip_master_cache
-        if query_upper in item.get("symbol", "").upper()
-        or query_upper in item.get("name", "").upper()
-    ]
-
-    filtered_items = []
-    for item in matched_items:
-      sym = item.get("symbol", "")
-      raw_exch = item.get("exchange", "NSE")
-
-      if "CE" in sym or "PE" in sym or raw_exch == "NFO":
-        filtered_items.append(item)
-      elif raw_exch == "BSE":
-        filtered_items.append(item)
-      elif raw_exch == "NSE":
-        if (
-            sym.endswith("-EQ")
-            or sym in ["NIFTY", "BANKNIFTY"]
-            or any(char.isdigit() for char in sym[-3:])
-        ):
-          filtered_items.append(item)
-
-    for item in filtered_items[:5]:
-      sym = item.get("symbol")
-      tok = item.get("token")
-      raw_exch = item.get("exchange", "NSE")
-
-      if "CE" in sym or "PE" in sym or raw_exch == "NFO":
-        exch = "NFO"
-      elif raw_exch == "BSE":
-        exch = "BSE"
-      else:
-        exch = "NSE"
-
-      price = 0.0
-      close_price = 0.0
-      if active_api:
-        try:
-          ltp_resp = active_api.ltpData(exch, sym, str(tok))
-          if ltp_resp and ltp_resp.get("status") and ltp_resp.get("data"):
-            price = float(ltp_resp["data"].get("ltp", 0.0))
-            close_price = float(ltp_resp["data"].get("close", price))
-          time.sleep(0.4)
-        except:
-          pass
-
-      results.append({
-          "symbol": sym,
-          "token": str(tok),
-          "exchange": exch,
-          "price": price,
-          "prev_close": close_price if close_price > 0 else price,
-      })
-      stockTokens[str(tok)] = sym
-      stockMap[sym] = str(tok)
-      stockExchanges[sym] = exch
-  except Exception as e:
-    print("Local Search error:", e)
-  return results
-
+    results = []
+    query_upper = q.upper()
+    active_api = ensure_smart_api_session()
+    try:
+        matched_items = [item for item in scrip_master_cache if query_upper in item.get("symbol", "").upper() or query_upper in item.get("name", "").upper()]
+        for item in matched_items[:5]:
+            sym = item.get("symbol")
+            tok = item.get("token")
+            exch = item.get("exchange", "NSE")
+            price = 0.0
+            close_price = 0.0
+            if active_api:
+                try:
+                    ltp_resp = active_api.ltpData(exch, sym, str(tok))
+                    if ltp_resp and ltp_resp.get("status") and ltp_resp.get("data"):
+                        price = float(ltp_resp["data"].get("ltp", 0.0))
+                        close_price = float(ltp_resp["data"].get("close", price))
+                    time.sleep(0.3)
+                except: pass
+            results.append({
+                "symbol": sym,
+                "token": str(tok),
+                "exchange": exch,
+                "price": price,
+                "prev_close": close_price if close_price > 0 else price
+            })
+            stockTokens[str(tok)] = sym
+            stockMap[sym] = str(tok)
+            stockExchanges[sym] = exch
+    except Exception as e:
+        print("Search error:", e)
+    return results
 
 @app.get("/order-book")
 def get_order_book():
-  active_api = ensure_smart_api_session()
-  if not active_api:
-    return {"success": False, "orders": []}
-  try:
-    resp = active_api.orderBook()
-    formatted_orders = []
-    if resp and resp.get("status") and resp.get("data"):
-      for order in resp["data"]:
-        status = order.get("status", "").upper()
-        if status in ["OPEN", "PENDING", "TRIGGER PENDING"]:
-          formatted_orders.append({
-              "orderid": order.get("orderid"),
-              "symbol": order.get("tradingsymbol"),
-              "transactiontype": order.get("transactiontype"),
-              "qty": order.get("quantity"),
-              "status": status,
-          })
-    return {"success": True, "orders": formatted_orders}
-  except Exception as e:
-    print("Order Book error:", e)
-    return {"success": False, "orders": []}
-
+    active_api = ensure_smart_api_session()
+    if not active_api: return {"success": False, "orders": []}
+    try:
+        resp = active_api.orderBook()
+        formatted_orders = []
+        if resp and resp.get("status") and resp.get("data"):
+            for order in resp["data"]:
+                status = order.get("status", "").upper()
+                if status in ["OPEN", "PENDING", "TRIGGER PENDING"]:
+                    formatted_orders.append({
+                        "orderid": order.get("orderid"),
+                        "symbol": order.get("tradingsymbol"),
+                        "transactiontype": order.get("transactiontype"),
+                        "qty": order.get("quantity"),
+                        "status": status
+                    })
+        return {"success": True, "orders": formatted_orders}
+    except Exception as e:
+        return {"success": False, "orders": []}
 
 @app.post("/cancel-order")
 def cancel_order(data: dict):
-  active_api = ensure_smart_api_session()
-  if not active_api:
-    return {"success": False, "message": "Broker not connected"}
-  try:
-    order_id = data.get("orderid")
-    variety = data.get("variety", "NORMAL")
-    resp = active_api.cancelOrder(orderid=order_id, variety=variety)
-    if resp and resp.get("status"):
-      return {"success": True}
-    return {
-        "success": False,
-        "message": resp.get("message", "Cancellation failed"),
-    }
-  except Exception as e:
-    return {"success": False, "message": str(e)}
-
+    active_api = ensure_smart_api_session()
+    if not active_api: return {"success": False, "message": "Broker not connected"}
+    try:
+        resp = active_api.cancelOrder(orderid=data.get("orderid"), variety=data.get("variety", "NORMAL"))
+        if resp and resp.get("status"): return {"success": True}
+        return {"success": False, "message": resp.get("message", "Cancellation failed")}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
 
 @app.get("/positions")
 def get_positions():
-  active_api = ensure_smart_api_session()
-  if not active_api:
-    return {"success": False, "positions": []}
-  try:
-    resp = active_api.position()
-    formatted_positions = []
-    if resp and resp.get("status") and resp.get("data"):
-      for pos in resp["data"]:
-        sym = pos.get("tradingsymbol")
-        exch = pos.get("exchange")
-        prod = pos.get("producttype")
-        qty = float(pos.get("netqty", 0))
-        avg_price = float(pos.get("averageprice", 0))
-        ltp = float(pos.get("ltp", avg_price))
-        pnl = float(
-            pos.get("pnl", (ltp - avg_price) * qty if qty > 0 else 0)
-        )
-
-        formatted_positions.append({
-            "symbol": sym,
-            "exchange": exch,
-            "product": prod,
-            "qty": qty,
-            "avgPrice": avg_price,
-            "ltp": ltp,
-            "pnl": pnl,
-        })
-    return {"success": True, "positions": formatted_positions}
-  except Exception as e:
-    print("Positions error:", e)
-    return {"success": False, "positions": []}
-
+    active_api = ensure_smart_api_session()
+    if not active_api: return {"success": False, "positions": []}
+    try:
+        resp = active_api.position()
+        formatted_positions = []
+        if resp and resp.get("status") and resp.get("data"):
+            for pos in resp["data"]:
+                sym = pos.get("tradingsymbol")
+                exch = pos.get("exchange")
+                prod = pos.get("producttype")
+                qty = float(pos.get("netqty", 0))
+                avg_price = float(pos.get("averageprice", 0))
+                ltp = float(pos.get("ltp", avg_price))
+                pnl = float(pos.get("pnl", (ltp - avg_price) * qty if qty > 0 else 0))
+                formatted_positions.append({"symbol": sym, "exchange": exch, "product": prod, "qty": qty, "avgPrice": avg_price, "ltp": ltp, "pnl": pnl})
+        return {"success": True, "positions": formatted_positions}
+    except Exception as e:
+        return {"success": False, "positions": []}
 
 @app.get("/options-chain")
 def get_options_chain(min_price: float = 0.0, max_price: float = 50000.0):
-  base_price = live_prices.get("NIFTY", 22620.0)
-  chain = []
-  for i in range(-20, 21):
-    strike = int(base_price + (i * 50))
-    ce_ltp = round(max(1.0, 250.0 - (i * 12.0)), 2)
-    pe_ltp = round(max(1.0, 250.0 + (i * 12.0)), 2)
-
-    if (min_price <= ce_ltp <= max_price) or (
-        min_price <= pe_ltp <= max_price
-    ):
-      chain.append({
-          "strike": strike,
-          "ceLtp": ce_ltp,
-          "ceVol": 12500 + abs(i) * 1500,
-          "peLtp": pe_ltp,
-          "peVol": 14000 + abs(i) * 1200,
-      })
-  return chain
-
+    base_price = live_prices.get("NIFTY", 22620.0)
+    chain = []
+    for i in range(-20, 21):
+        strike = int(base_price + (i * 50))
+        ce_ltp = round(max(1.0, 250.0 - (i * 12.0)), 2)
+        pe_ltp = round(max(1.0, 250.0 + (i * 12.0)), 2)
+        if (min_price <= ce_ltp <= max_price) or (min_price <= pe_ltp <= max_price):
+            chain.append({"strike": strike, "ceLtp": ce_ltp, "ceVol": 12500 + abs(i) * 1500, "peLtp": pe_ltp, "peVol": 14000 + abs(i) * 1200})
+    return chain
 
 @app.get("/history")
 def get_historical_candles(token: str, exchange: str = "NSE"):
-  active_api = ensure_smart_api_session()
-  if not active_api:
-    return []
-  try:
-    historicParam = {
-        "exchange": exchange,
-        "symboltoken": token,
-        "interval": "FIVE_MINUTE",
-        "fromdate": (datetime.now() - timedelta(days=2)).strftime(
-            "%Y-%m-%d %H:%M"
-        ),
-        "todate": datetime.now().strftime("%Y-%m-%d %H:%M"),
-    }
-    time.sleep(1)
-    resp = active_api.getCandleData(historicParam)
-    if resp and resp.get("status") and resp.get("data"):
-      return [{
-          "time": int(
-              datetime.fromisoformat(c[0].replace("+05:30", "")).timestamp()
-          ),
-          "open": float(c[1]),
-          "high": float(c[2]),
-          "low": float(c[3]),
-          "close": float(c[4]),
-      } for c in resp["data"]]
-  except:
-    pass
-  return []
-
-
-def track_live_position_and_tsl(
-    symbol, exchange, token, entry_price, tx_type, qty, sl_points, tsl_jump
-):
-  current_sl = (
-      entry_price - sl_points if tx_type == "BUY" else entry_price + sl_points
-  )
-  peak_price = entry_price
-
-  while True:
-    time.sleep(10)
+    active_api = ensure_smart_api_session()
+    if not active_api: return []
     try:
-      active_api = ensure_smart_api_session()
-      if not active_api:
-        break
-      resp = active_api.ltpData(exchange, symbol, token)
-      if resp and resp.get("status") and resp.get("data"):
-        ltp = float(resp["data"].get("ltp", 0.0))
-        if ltp <= 0:
-          continue
-
-        if tx_type == "BUY":
-          if ltp > peak_price:
-            diff = ltp - peak_price
-            if diff >= tsl_jump:
-              steps = int(diff / tsl_jump)
-              current_sl += steps * tsl_jump
-              peak_price += steps * tsl_jump
-          if ltp <= current_sl:
-            square_off_params = {
-                "variety": "NORMAL",
-                "tradingsymbol": symbol,
-                "symboltoken": token,
-                "transactiontype": "SELL",
-                "exchange": exchange,
-                "ordertype": "MARKET",
-                "producttype": "INTRADAY",
-                "duration": "DAY",
-                "price": "0",
-                "quantity": str(qty),
-            }
-            active_api.placeOrder(square_off_params)
-            break
-        elif tx_type == "SELL":
-          if ltp < peak_price:
-            diff = peak_price - ltp
-            if diff >= tsl_jump:
-              steps = int(diff / tsl_jump)
-              current_sl -= steps * tsl_jump
-              peak_price -= steps * tsl_jump
-          if ltp >= current_sl:
-            square_off_params = {
-                "variety": "NORMAL",
-                "tradingsymbol": symbol,
-                "symboltoken": token,
-                "transactiontype": "BUY",
-                "exchange": exchange,
-                "ordertype": "MARKET",
-                "producttype": "INTRADAY",
-                "duration": "DAY",
-                "price": "0",
-                "quantity": str(qty),
-            }
-            active_api.placeOrder(square_off_params)
-            break
-    except Exception as e:
-      pass
-
+        historicParam = {
+            "exchange": exchange, 
+            "symboltoken": token, 
+            "interval": "FIVE_MINUTE", 
+            "fromdate": (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d %H:%M"), 
+            "todate": datetime.now().strftime("%Y-%m-%d %H:%M")
+        }
+        time.sleep(1)
+        resp = active_api.getCandleData(historicParam)
+        if resp and resp.get("status") and resp.get("data"):
+            return [{"time": int(datetime.fromisoformat(c[0].replace("+05:30", "")).timestamp()), "open": float(c[1]), "high": float(c[2]), "low": float(c[3]), "close": float(c[4])} for c in resp["data"]]
+    except: pass
+    return []
 
 def autonomous_bot_background_worker():
-  time.sleep(10)
-  order_placed_flag = False
-
-  while True:
-    time.sleep(30)
-    if not bg_state["bot_active"] or order_placed_flag:
-      continue
-    try:
-      active_api = ensure_smart_api_session()
-      if not active_api:
-        continue
-
-      target_symbol = bg_state.get("symbol", "")
-      target_token = bg_state.get("token", "")
-      target_exch = bg_state.get("exchange", "NSE")
-
-      if not target_symbol or not target_token:
-        target_symbol = "RELIANCE-EQ"
-        target_token = stockMap.get("RELIANCE-EQ", "2885")
-        target_exch = "NSE"
-
-      base_qty = bg_state.get("bot_qty", 1)
-      leverage = bg_state.get("leverage", 1)
-      final_qty = base_qty * leverage
-      product = bg_state.get("bot_product", "INTRADAY")
-
-      current_price = live_prices.get(target_symbol, 0.0)
-      if current_price <= 0:
-        current_price = 100.0
-
-      signal = "BUY"
-      sl_points = current_price * 0.005
-      tsl_jump = current_price * 0.002
-
-      order_params = {
-          "variety": "NORMAL",
-          "tradingsymbol": target_symbol,
-          "symboltoken": str(target_token),
-          "transactiontype": signal,
-          "exchange": target_exch,
-          "ordertype": "MARKET",
-          "producttype": product,
-          "duration": "DAY",
-          "price": "0",
-          "quantity": str(final_qty),
-      }
-
-      print(f"[Sending Order] Params: {order_params}")
-      response = active_api.placeOrder(order_params)
-      print(f"[Broker Response] Place Order API Response: {response}")
-
-      if response:
-        print(
-            "[Fully Autonomous Bot]"
-            f" {signal} Order Executed Successfully! Symbol: {target_symbol} |"
-            f" Token: {target_token} | Qty: {final_qty}"
-        )
-        order_placed_flag = True
-        bg_state["bot_active"] = False
-        threading.Thread(
-            target=track_live_position_and_tsl,
-            args=(
-                target_symbol,
-                target_exch,
-                target_token,
-                current_price,
-                signal,
-                final_qty,
-                sl_points,
-                tsl_jump,
-            ),
-            daemon=True,
-        ).start()
-        break
-    except Exception as e:
-      print("Autonomous Bot Error:", e)
-
+    time.sleep(10)
+    order_placed_flag = False
+    while True:
+        time.sleep(30)
+        if not bg_state["bot_active"] or order_placed_flag: continue
+        try:
+            active_api = ensure_smart_api_session()
+            if not active_api: continue
+            target_symbol = bg_state.get("symbol", "RELIANCE-EQ")
+            target_token = bg_state.get("token", "2885")
+            target_exch = bg_state.get("exchange", "NSE")
+            final_qty = bg_state.get("bot_qty", 1) * bg_state.get("leverage", 1)
+            
+            order_params = {
+                "variety": "NORMAL", "tradingsymbol": target_symbol, "symboltoken": str(target_token),
+                "transactiontype": "BUY", "exchange": target_exch, "ordertype": "MARKET",
+                "producttype": bg_state.get("bot_product", "INTRADAY"), "duration": "DAY", "price": "0", "quantity": str(final_qty)
+            }
+            response = active_api.placeOrder(order_params)
+            if response:
+                order_placed_flag = True
+                bg_state["bot_active"] = False
+                break
+        except Exception as e:
+            print("Autonomous Bot Error:", e)
 
 threading.Thread(target=autonomous_bot_background_worker, daemon=True).start()
 
-
 @app.post("/toggle-bot")
 async def toggle_bot_state(data: dict):
-  bg_state["bot_active"] = data.get("active", False)
-  bg_state["target_mode"] = data.get("mode", "STOCK")
-  bg_state["bot_qty"] = int(data.get("qty", 1))
-  bg_state["bot_product"] = data.get("product", "INTRADAY")
-  bg_state["leverage"] = int(data.get("leverage", 1))
-  bg_state["symbol"] = data.get("symbol", "")
-  bg_state["token"] = data.get("token", "")
-  bg_state["exchange"] = data.get("exchange", "NSE")
-  return {"status": "success", "bot_active": bg_state["bot_active"]}
-
+    bg_state["bot_active"] = data.get("active", False)
+    bg_state["target_mode"] = data.get("mode", "STOCK")
+    bg_state["bot_qty"] = int(data.get("qty", 1))
+    bg_state["bot_product"] = data.get("product", "INTRADAY")
+    bg_state["leverage"] = int(data.get("leverage", 1))
+    bg_state["symbol"] = data.get("symbol", "")
+    bg_state["token"] = data.get("token", "")
+    bg_state["exchange"] = data.get("exchange", "NSE")
+    return {"status": "success", "bot_active": bg_state["bot_active"]}
 
 @app.post("/connect")
 async def connect_broker(data: dict):
-  global smart_api_obj
-  try:
-    saved_credentials["api_key"] = data["apiKey"]
-    saved_credentials["client_id"] = data["clientId"]
-    saved_credentials["password"] = data["password"]
-    saved_credentials["totp_key"] = data["totpKey"]
-
-    obj = SmartConnect(api_key=data["apiKey"])
-    totp_code = pyotp.TOTP(data["totpKey"]).now()
-    session = obj.generateSession(data["clientId"], data["password"], totp_code)
-    if session and session.get("status"):
-      smart_api_obj = obj
-      threading.Thread(
-          target=start_smart_websocket,
-          args=(
-              session["data"]["jwtToken"],
-              data["apiKey"],
-              data["clientId"],
-              session["data"].get("feedToken")
-              or getattr(obj, "feedToken", None),
-          ),
-          daemon=True,
-      ).start()
-      return {"status": "success"}
-    return {"status": "error", "message": "Invalid Credentials"}
-  except Exception as e:
-    return {"status": "error", "message": str(e)}
-
+    global smart_api_obj, last_login_time
+    try:
+        saved_credentials["api_key"] = data["apiKey"]
+        saved_credentials["client_id"] = data["clientId"]
+        saved_credentials["password"] = data["password"]
+        saved_credentials["totp_key"] = data["totpKey"]
+        last_login_time = time.time()
+        obj = SmartConnect(api_key=data["apiKey"])
+        totp_code = pyotp.TOTP(data["totpKey"]).now()
+        session = obj.generateSession(data["clientId"], data["password"], totp_code)
+        if session and session.get('status'):
+            smart_api_obj = obj
+            threading.Thread(target=start_smart_websocket, args=(session['data']['jwtToken'], data["apiKey"], data["clientId"], session['data'].get('feedToken') or getattr(obj, 'feedToken', None)), daemon=True).start()
+            return {"status": "success"}
+        return {"status": "error", "message": "Invalid Credentials"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
-  port = int(os.environ.get("PORT", 8000))
-  uvicorn.run("app:app", host="0.0.0.0", port=port)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("app:app", host="0.0.0.0", port=port)
