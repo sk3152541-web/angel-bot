@@ -213,8 +213,9 @@ HTML_CONTENT = """<!DOCTYPE html>
                                 </select>
                             </div>
                         </div>
-                        <div style="margin-top: 20px; display: flex; align-items: center; gap: 15px;">
+                        <div style="margin-top: 20px; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
                             <button id="botToggleBtn" class="btn" style="background-color: #089981; color: white; padding: 10px 20px;" onclick="toggleBot()">Start Fully Autonomous Bot</button>
+                            <button class="btn" style="background-color: #38bdf8; color: #0b0e14; padding: 10px 15px;" onclick="testInstantOrder()">⚡ Test Instant AMO Order Now</button>
                             <span id="botStatus" style="font-size: 12px; color: #f23645; font-weight: bold;">● Bot Status: Stopped</span>
                         </div>
                     </div>
@@ -636,6 +637,28 @@ HTML_CONTENT = """<!DOCTYPE html>
             });
         }
 
+        function testInstantOrder() {
+            const qty = document.getElementById("botQty").value;
+            const product = document.getElementById("botProduct").value;
+            const sym = selectedSymbol || "ITC-EQ";
+            const tok = selectedToken || "1660";
+            const exch = selectedExchange || "NSE";
+
+            fetch('/test-order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol: sym, token: tok, exchange: exch, qty: parseInt(qty), product: product })
+            }).then(res => res.json()).then(resp => {
+                if(resp.success) {
+                    showToast("Test AMO Order Placed Successfully!");
+                    addLog(`[Test Order] Real AMO order placed for ${sym} (ID: ${resp.orderid})`);
+                } else {
+                    showToast("Order Failed: " + resp.message);
+                    addLog(`[Test Order Error] ${resp.message}`);
+                }
+            });
+        }
+
         function connectBroker() {
             const data = {
                 apiKey: document.getElementById("apiKey").value,
@@ -888,6 +911,37 @@ def get_positions():
     except Exception as e:
         return {"success": False, "positions": []}
 
+@app.post("/test-order")
+def test_order(data: dict):
+    active_api = ensure_smart_api_session()
+    if not active_api: return {"success": False, "message": "Broker not connected"}
+    try:
+        sym = data.get("symbol", "ITC-EQ")
+        tok = data.get("token", "1660")
+        exch = data.get("exchange", "NSE")
+        qty = data.get("qty", 1)
+        prod = data.get("product", "INTRADAY")
+        
+        order_params = {
+            "variety": "AMO", 
+            "tradingsymbol": sym, 
+            "symboltoken": str(tok),
+            "transactiontype": "BUY", 
+            "exchange": exch, 
+            "ordertype": "LIMIT",
+            "producttype": prod, 
+            "duration": "DAY", 
+            "price": "250", 
+            "quantity": str(qty)
+        }
+        resp = active_api.placeOrder(order_params)
+        print(f"[Instant Test Order Response]: {resp}")
+        if resp and resp.get("status"):
+            return {"success": True, "orderid": resp.get("data", {}).get("orderid", "TEST_ID")}
+        return {"success": False, "message": str(resp.get("message", "Order placement failed"))}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
 @app.get("/options-chain")
 def get_options_chain(min_price: float = 0.0, max_price: float = 50000.0):
     base_price = live_prices.get("NIFTY", 22620.0)
@@ -933,7 +987,6 @@ def autonomous_bot_background_worker():
             target_exch = bg_state.get("exchange", "NSE")
             final_qty = bg_state.get("bot_qty", 1) * bg_state.get("leverage", 1)
             
-            # Market off hone par AMO (After Market Order) support taki real pending order place ho sake
             order_params = {
                 "variety": "AMO", 
                 "tradingsymbol": target_symbol, 
