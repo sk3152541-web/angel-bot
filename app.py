@@ -747,7 +747,6 @@ async def startup_event():
             raise Exception("Non-200 response")
     except Exception as e:
         print("[System] Failed to download Scrip Master online. Loading fallback backup items:", e)
-        # Fallback default items to prevent blank watchlist if offline/timeout on startup
         scrip_master_cache = [
             {"symbol": "RELIANCE-EQ", "token": "2885", "exchange": "NSE", "name": "RELIANCE"},
             {"symbol": "TCS-EQ", "token": "11536", "exchange": "NSE", "name": "TCS"},
@@ -929,17 +928,26 @@ def autonomous_bot_background_worker():
         try:
             active_api = ensure_smart_api_session()
             if not active_api: continue
-            target_symbol = bg_state.get("symbol", "RELIANCE-EQ")
-            target_token = bg_state.get("token", "2885")
+            target_symbol = bg_state.get("symbol", "ITC-EQ")
+            target_token = bg_state.get("token", "1660")
             target_exch = bg_state.get("exchange", "NSE")
             final_qty = bg_state.get("bot_qty", 1) * bg_state.get("leverage", 1)
             
+            # Market off hone par AMO (After Market Order) support taki real pending order place ho sake
             order_params = {
-                "variety": "NORMAL", "tradingsymbol": target_symbol, "symboltoken": str(target_token),
-                "transactiontype": "BUY", "exchange": target_exch, "ordertype": "MARKET",
-                "producttype": bg_state.get("bot_product", "INTRADAY"), "duration": "DAY", "price": "0", "quantity": str(final_qty)
+                "variety": "AMO", 
+                "tradingsymbol": target_symbol, 
+                "symboltoken": str(target_token),
+                "transactiontype": "BUY", 
+                "exchange": target_exch, 
+                "ordertype": "LIMIT",
+                "producttype": bg_state.get("bot_product", "INTRADAY"), 
+                "duration": "DAY", 
+                "price": "250", 
+                "quantity": str(final_qty)
             }
             response = active_api.placeOrder(order_params)
+            print(f"[Autonomous Bot Live Order Response]: {response}")
             if response:
                 order_placed_flag = True
                 bg_state["bot_active"] = False
